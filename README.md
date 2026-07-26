@@ -126,3 +126,8 @@ For information about other development tools used to maintain derived projects 
 Note that we've tried to get as many of the core features of a SaaS app into this template as possible, but there still might be some missing features or functionality.
 
 We could always use some help tying up loose ends: contributions are welcome! Check out [CONTRIBUTING.md](/CONTRIBUTING.md) for more details.
+---
+
+## 🎨 Prototipo Interactivo MVP
+Puedes probar la interfaz interactiva del proyecto SOS-911 creada en Google Stitch en el siguiente enlace:
+👉 [Probar Prototipo en Google Stitch](https://stitch.withgoogle.com/preview/322711302255974567?node-id=8db3751219a6ec6be20d9f836c2bfb6)
