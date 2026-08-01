@@ -1,5 +1,5 @@
 {
-  "name": "wasp-repo",
+  "name": "SOS-911",
   "type": "module",
   "scripts": {
     "lint": "eslint .",
