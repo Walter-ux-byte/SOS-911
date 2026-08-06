@@ -3,154 +3,383 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SOS911</title>
+  <title>SOS911 — Sistema de Emergencias Urbanas</title>
   <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+  <!-- Leaflet.js CSS para Mapas Interactivos -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
 <body>
   <div class="app-shell">
-    <!-- HEADER -->
-    <header class="top-header">
-      <button class="icon-btn"><span class="material-symbols-rounded">menu</span></button>
-      <h1 class="app-title">SOS911</h1>
-      <button class="icon-btn profile-btn"><span class="material-symbols-rounded">account_circle</span></button>
+    
+    <!-- BANNER DE EMERGENCIA GLOBAL (CUANDO LA ALERTA ESTÁ ACTIVA) -->
+    <div id="emergencyBanner" class="emergency-banner hidden">
+      <div class="eb-content">
+        <span class="pulse-icon material-symbols-rounded">warning</span>
+        <div class="eb-text">
+          <strong id="ebTitle">⚡ ALERTA DE EMERGENCIA ACTIVADA</strong>
+          <span id="ebTimer">Tiempo activo: 00:00</span>
+        </div>
+      </div>
+      <button class="btn-banner-action" id="bannerMapBtn">Ver Mapa</button>
+    </div>
+
+    <!-- HEADER SUPERIOR -->
+    <header class="top-header" id="appHeader">
+      <div class="header-brand">
+        <div class="logo-icon-badge">
+          <span class="material-symbols-rounded">health_and_safety</span>
+        </div>
+        <div class="brand-text">
+          <h1 class="app-title">SOS911</h1>
+          <span class="system-status" id="systemStatusTag">
+            <span class="status-dot-mini green" id="statusDot"></span>
+            <span id="statusLabel">Sistema Seguro</span>
+          </span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="directCallBtn" title="Llamada Directa 911">
+          <span class="material-symbols-rounded" style="color: #EF4444;">phone_in_talk</span>
+        </button>
+        <button class="icon-btn profile-btn" id="openProfileBtn" title="Perfil de Usuario">
+          <span class="material-symbols-rounded">account_circle</span>
+        </button>
+      </div>
     </header>
 
-    <!-- VISTAS DE PANTALLA -->
+    <!-- ÁREA DE CONTENIDO (PANTALLAS) -->
     <main class="content-area">
       
-      <!-- PANTALLA 1: HOME -->
+      <!-- PANTALLA 1: INICIO (BOTÓN DE PÁNICO) -->
       <section id="view-home" class="view-panel active">
         <div class="card logo-card">
           <div class="brand-badge">
-            <span class="material-symbols-rounded">health_and_safety</span>
+            <span class="material-symbols-rounded">shield_person</span>
           </div>
-          <h2 class="hero-title">SOS911</h2>
-          <p class="hero-subtitle">"Tu seguridad es nuestra prioridad"</p>
+          <h2 class="hero-title">Centro de Control SOS</h2>
+          <p class="hero-subtitle">Mantén presionado el botón por 3 segundos en caso de peligro o selecciona la categoría.</p>
         </div>
 
-        <div class="panic-container">
-          <button class="panic-button">
-            <span class="material-symbols-rounded asterisk" style="font-size: 48px; margin-bottom: 8px;">asterisk</span>
-            <span class="panic-label">BOTÓN DE PÁNICO</span>
+        <!-- BOTÓN DE PÁNICO PRINCIPAL CON BARRA DE CARGA Y ANILLO -->
+        <div class="panic-wrapper">
+          <button class="panic-btn main-panic-btn" data-type="general" data-name="Emergencia General" data-icon="warning">
+            <div class="pb-ring-outer"></div>
+            <div class="pb-hold-bar"></div>
+            <div class="pb-content">
+              <span class="material-symbols-rounded panic-icon">touch_app</span>
+              <span class="panic-label">BOTÓN DE PÁNICO</span>
+              <span class="panic-sublabel">Mantén presionado 3s</span>
+            </div>
           </button>
         </div>
 
+        <!-- ACCESOS RÁPIDOS POR CATEGORÍA DE EMERGENCIA -->
+        <div class="category-section">
+          <h3 class="section-heading">Selección Rápida por Incidente</h3>
+          <div class="category-grid">
+            <button class="category-card panic-btn" data-type="robo" data-name="Robo / Asalto" data-icon="local_police">
+              <div class="pb-hold-bar"></div>
+              <span class="material-symbols-rounded cat-icon red">local_police</span>
+              <span class="cat-title">Robo / Asalto</span>
+              <span class="cat-sub">Sostén 3s</span>
+            </button>
+            
+            <button class="category-card panic-btn" data-type="incendio" data-name="Incendio" data-icon="local_fire_department">
+              <div class="pb-hold-bar"></div>
+              <span class="material-symbols-rounded cat-icon orange">local_fire_department</span>
+              <span class="cat-title">Incendio</span>
+              <span class="cat-sub">Sostén 3s</span>
+            </button>
+            
+            <button class="category-card panic-btn" data-type="medica" data-name="Emergencia Médica" data-icon="medical_services">
+              <div class="pb-hold-bar"></div>
+              <span class="material-symbols-rounded cat-icon blue">medical_services</span>
+              <span class="cat-title">Emergencia Médica</span>
+              <span class="cat-sub">Sostén 3s</span>
+            </button>
+
+            <button class="category-card panic-btn" data-type="general" data-name="Alerta Sospechosa" data-icon="notifications_active">
+              <div class="pb-hold-bar"></div>
+              <span class="material-symbols-rounded cat-icon amber">notifications_active</span>
+              <span class="cat-title">Sospecha / Alerta</span>
+              <span class="cat-sub">Sostén 3s</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- TARJETAS DE ACCIÓN AUXILIAR -->
         <div class="action-grid">
-          <button class="action-card">
-            <span class="material-symbols-rounded card-icon" style="color: #4F46E5; font-size: 32px;">my_location</span>
-            <span>Mi ubicación</span>
+          <button class="action-card" id="myLocationBtn">
+            <span class="material-symbols-rounded card-icon indigo">my_location</span>
+            <div class="ac-text">
+              <strong>Mi Ubicación GPS</strong>
+              <span id="homeLocationPreview">Mapa & Seguimiento en Vivo</span>
+            </div>
           </button>
-          <button class="action-card">
-            <span class="material-symbols-rounded card-icon" style="color: #4F46E5; font-size: 32px;">settings</span>
-            <span>Configuración</span>
+          <button class="action-card" id="quickContactsBtn">
+            <span class="material-symbols-rounded card-icon indigo">family_restroom</span>
+            <div class="ac-text">
+              <strong>Red de Apoyo</strong>
+              <span id="homeContactCount">Cargando contactos...</span>
+            </div>
           </button>
         </div>
       </section>
 
-      <!-- PANTALLA 2: MAP -->
+      <!-- PANTALLA 2: MAPA EN VIVO Y DESPACHO -->
       <section id="view-map" class="view-panel hidden">
         <div class="map-header">
-          <h2 class="alert-title" style="color: #C1121F; font-weight: 700; font-size: 18px;">Alerta enviada</h2>
+          <div class="map-status-pill danger" id="mapStatusPill">
+            <span class="material-symbols-rounded blink">fading_indicator</span>
+            <span id="mapStatusText">Monitoreo GPS Activo</span>
+          </div>
         </div>
         
-        <div class="map-card">
-          <div class="map-placeholder">
-            <div class="location-floating-card">
-              <span class="material-symbols-rounded pin-icon" style="color: #C1121F;">location_on</span>
-              <div>
-                <strong>Ubicación actual</strong>
-                <p>Av. Insurgentes Sur 1242, CDMX</p>
+        <!-- CONTENEDOR DEL MAPA LEAFLET -->
+        <div class="map-card-wrapper">
+          <div id="map" class="leaflet-map-container"></div>
+          
+          <div class="location-floating-card">
+            <span class="material-symbols-rounded pin-icon">location_on</span>
+            <div class="location-info">
+              <strong>Ubicación Detectada</strong>
+              <p id="liveAddressText">Obteniendo coordenadas GPS real...</p>
+              <small id="liveCoordsText">Lat: -- , Lng: --</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACCIONES DEL MAPA -->
+        <div class="map-actions">
+          <button class="btn btn-blue" id="shareLocationBtn">
+            <span class="material-symbols-rounded">share</span> Compartir Ubicación GPS
+          </button>
+          <button class="btn btn-red hidden" id="cancelEmergencyBtn">
+            <span class="material-symbols-rounded">cancel</span> Cancelar Alerta
+          </button>
+        </div>
+
+        <!-- LÍNEA DE TIEMPO DE DESPACHO 911 (ACTIVA EN EMERGENCIA) -->
+        <div class="dispatch-section" id="dispatchSection" style="display: none;">
+          <h3 class="section-title">Protocolo de Despacho 911 en Curso</h3>
+          <div class="timeline-stepper">
+            <div class="timeline-step active" id="tl1">
+              <div class="step-icon"><span class="material-symbols-rounded">sensors</span></div>
+              <div class="step-content">
+                <strong>1. Transmisión de Alerta</strong>
+                <p>Coordenadas enviadas a la Central 911.</p>
+              </div>
+            </div>
+            <div class="timeline-step" id="tl2">
+              <div class="step-icon"><span class="material-symbols-rounded">local_police</span></div>
+              <div class="step-content">
+                <strong>2. Asignación de Unidad</strong>
+                <p id="tl2desc">Buscando cuadrante más cercano...</p>
+              </div>
+            </div>
+            <div class="timeline-step" id="tl3">
+              <div class="step-icon"><span class="material-symbols-rounded">directions_car</span></div>
+              <div class="step-content">
+                <strong>3. Patrullero en Ruta</strong>
+                <p id="tl3desc">Esperando confirmación de despacho...</p>
+              </div>
+            </div>
+            <div class="timeline-step" id="tl4">
+              <div class="step-icon"><span class="material-symbols-rounded">shield</span></div>
+              <div class="step-content">
+                <strong>4. Unidad en Escena</strong>
+                <p>Oficiales arribando a la ubicación.</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="alert-status-box">
-          <div class="check-circle"><span class="material-symbols-rounded">check</span></div>
-          <p class="status-heading">La alerta fue enviada correctamente</p>
-          <p class="status-desc">El centro de emergencias y tus contactos de confianza han sido notificados.</p>
-        </div>
-
-        <div class="map-actions">
-          <button class="btn btn-blue"><span class="material-symbols-rounded" style="font-size: 20px;">share</span> Compartir ubicación</button>
-          <button class="btn btn-red"><span class="material-symbols-rounded" style="font-size: 20px;">cancel</span> Cancelar alerta</button>
-        </div>
-
-        <div class="notified-section">
-          <h3 style="font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 4px;">Contactos notificados</h3>
-          <div class="contact-status-card">
-            <div class="avatar-circle"><span class="material-symbols-rounded">person</span></div>
-            <div class="contact-info">
-              <strong>Mamá (Elena)</strong>
-              <span class="status-tag">SMS Enviado</span>
+        <!-- FEED DE CHAT Y NOTIFICACIONES EN VIVO -->
+        <div class="chat-section">
+          <h3 class="section-title">Red Vecinal y Canal de Monitoreo</h3>
+          <div class="chat-feed" id="chatFeed">
+            <div class="chat-msg system">
+              <span class="cm-sender">Sistema SOS911:</span> Presione el Botón de Pánico para activar la transmisión automática a la red de apoyo.
             </div>
-            <span class="material-symbols-rounded check-mark" style="color: #4F46E5;">check_circle</span>
+          </div>
+        </div>
+
+        <!-- CONTACTOS NOTIFICADOS -->
+        <div class="notified-section">
+          <h3 class="section-title">Red de Contactos Alertados</h3>
+          <div id="notifiedContactsList" class="notified-contacts-grid">
+            <p class="empty-state-text">No hay alertas transmitidas en este momento.</p>
           </div>
         </div>
       </section>
 
-      <!-- PANTALLA 3: CONTACTS -->
+      <!-- PANTALLA 3: CONTACTOS DE CONFIANZA -->
       <section id="view-contacts" class="view-panel hidden">
         <div class="contacts-header">
-          <h2>Contactos de confianza</h2>
-          <p>Personas que serán notificadas automáticamente en caso de emergencia.</p>
+          <h2>Red de Apoyo Inmediato</h2>
+          <p>Tus contactos recibirán alertas por SMS y enlace de mapa GPS al activar una emergencia.</p>
         </div>
 
-        <div class="contact-list">
-          <div class="contact-item">
-            <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
-            <div class="contact-details">
-              <strong>Ana García</strong>
-              <span>+54 11 1234-5678</span>
-            </div>
-            <button class="trash-btn"><span class="material-symbols-rounded">delete</span></button>
-          </div>
-
-          <div class="contact-item">
-            <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
-            <div class="contact-details">
-              <strong>Carlos Ruiz</strong>
-              <span>+54 11 8765-4321</span>
-            </div>
-            <button class="trash-btn"><span class="material-symbols-rounded">delete</span></button>
-          </div>
+        <div class="contact-list" id="contactsListContainer">
+          <!-- Renderizado dinámico desde JS -->
         </div>
 
+        <!-- FORMULARIO AGREGAR CONTACTO -->
         <div class="add-contact-card">
-          <h3 style="display: flex; align-items: center; gap: 8px; color: #4F46E5;"><span class="material-symbols-rounded">add_circle</span> Agregar contacto</h3>
-          <div class="form-group">
-            <label>Nombre</label>
-            <input type="text" placeholder="Ej. Maria Lopez">
-          </div>
-          <div class="form-group">
-            <label>Teléfono</label>
-            <input type="text" placeholder="+54 9...">
-          </div>
-          <button class="btn btn-red full-width"><span class="material-symbols-rounded" style="font-size: 20px;">save</span> Guardar</button>
+          <h3>
+            <span class="material-symbols-rounded">person_add</span> 
+            Agregar Contacto de Confianza
+          </h3>
+          <form id="addContactForm" onsubmit="return false;">
+            <div class="form-group">
+              <label for="contactNameInput">Nombre Completo</label>
+              <input type="text" id="contactNameInput" placeholder="Ej. Ana García (Mamá)" required>
+            </div>
+            <div class="form-group">
+              <label for="contactPhoneInput">Número Telefónico (con código de país)</label>
+              <input type="tel" id="contactPhoneInput" placeholder="Ej. +593 99 123 4567" required>
+            </div>
+            <div class="form-group">
+              <label for="contactRelationInput">Relación / Parentesco</label>
+              <input type="text" id="contactRelationInput" placeholder="Ej. Familiar, Vecino, Trabajo">
+            </div>
+            <button type="submit" class="btn btn-red full-width" id="saveContactBtn">
+              <span class="material-symbols-rounded">save</span> Guardar en Red de Apoyo
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- PANTALLA 4: HISTORIAL DE INCIDENTES -->
+      <section id="view-history" class="view-panel hidden">
+        <div class="history-header">
+          <h2>Historial de Registro de Alertas</h2>
+          <p>Consulta los eventos finalizados y los reportes creados.</p>
+        </div>
+
+        <div class="logs-container" id="logsList">
+          <!-- Renderizado dinámico -->
         </div>
       </section>
 
     </main>
 
-    <!-- BOTTOM NAVIGATION BAR -->
+    <!-- NAVEGACIÓN INFERIOR (BOTTOM NAV) -->
     <nav class="bottom-nav">
-      <button class="nav-item active" data-tab="view-home">
+      <button class="nav-item active" data-tab="view-home" id="nav-inicio">
         <span class="material-symbols-rounded nav-icon">home</span>
-        <span class="nav-text">Home</span>
+        <span class="nav-text">Inicio</span>
       </button>
-      <button class="nav-item" data-tab="view-map">
-        <span class="material-symbols-rounded nav-icon">location_on</span>
-        <span class="nav-text">Map</span>
+      <button class="nav-item" data-tab="view-map" id="nav-mapa">
+        <span class="material-symbols-rounded nav-icon">map</span>
+        <span class="nav-text">Mapa & GPS</span>
       </button>
-      <button class="nav-item" data-tab="view-contacts">
-        <span class="material-symbols-rounded nav-icon">group</span>
-        <span class="nav-text">Contacts</span>
+      <button class="nav-item" data-tab="view-contacts" id="nav-contactos">
+        <span class="material-symbols-rounded nav-icon">contacts</span>
+        <span class="nav-text">Contactos</span>
+      </button>
+      <button class="nav-item" data-tab="view-history" id="nav-historial">
+        <span class="material-symbols-rounded nav-icon">history</span>
+        <span class="nav-text">Historial</span>
       </button>
     </nav>
   </div>
 
+  <!-- MODAL 1: REGISTRO Y PERFIL DE USUARIO (RF-01) -->
+  <div class="modal-backdrop" id="profileModalBackdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><span class="material-symbols-rounded">badge</span> Perfil de Usuario SOS-911</h3>
+        <button class="modal-close-btn" id="closeProfileModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="profileForm" onsubmit="return false;">
+          <div class="form-group">
+            <label for="userNameInput">Nombre del Usuario</label>
+            <input type="text" id="userNameInput" placeholder="Ej. Dr. Carlos Mendoza">
+          </div>
+          <div class="form-group">
+            <label for="userPhoneInput">Teléfono Móvil Principal</label>
+            <input type="tel" id="userPhoneInput" placeholder="+593 98 765 4321">
+          </div>
+          <div class="form-group">
+            <label for="userEmailInput">Correo Electrónico</label>
+            <input type="email" id="userEmailInput" placeholder="usuario@sos911.app">
+          </div>
+          <div class="form-group">
+            <label for="userAddressInput">Dirección Principal / Comercio</label>
+            <input type="text" id="userAddressInput" placeholder="Ej. Av. Amazonas N24-15 y Colón">
+          </div>
+          <div class="form-group">
+            <label for="userMedicalInput">Ficha Médica / Alergias / Tipo de Sangre</label>
+            <textarea id="userMedicalInput" rows="2" placeholder="O+ / Alérgico a Penicilina"></textarea>
+          </div>
+          <button type="submit" class="btn btn-blue full-width" id="saveProfileBtn">
+            <span class="material-symbols-rounded">check_circle</span> Actualizar Perfil
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: CANCELACIÓN E INFORME DE RESOLUCIÓN DE EMERGENCIA -->
+  <div class="modal-backdrop" id="resolutionBackdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><span class="material-symbols-rounded">verified_user</span> Finalizar Alerta de Emergencia</h3>
+        <button class="modal-close-btn" id="rmDismiss">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Para cerrar la alerta y restaurar el estado seguro, por favor escriba una breve explicación de la resolución (mínimo 6 caracteres).
+        </p>
+        <div class="form-group">
+          <label for="rmText">Informe de Cierre de Incidente</label>
+          <textarea id="rmText" rows="3" placeholder="Ej. Falsa alarma por prueba de botón / Situación controlada por personal de seguridad."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="rmCancelBtn">Volver</button>
+          <button class="btn btn-red" id="rmSubmit">Confirmar Cierre de Alerta</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: EDITAR CONTACTO -->
+  <div class="modal-backdrop" id="editContactModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><span class="material-symbols-rounded">edit</span> Editar Contacto</h3>
+        <button class="modal-close-btn" id="closeEditContactModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="editContactForm" onsubmit="return false;">
+          <input type="hidden" id="editContactId">
+          <div class="form-group">
+            <label for="editContactName">Nombre Completo</label>
+            <input type="text" id="editContactName" required>
+          </div>
+          <div class="form-group">
+            <label for="editContactPhone">Teléfono</label>
+            <input type="tel" id="editContactPhone" required>
+          </div>
+          <div class="form-group">
+            <label for="editContactRelation">Relación</label>
+            <input type="text" id="editContactRelation">
+          </div>
+          <button type="submit" class="btn btn-blue full-width" id="saveEditContactBtn">
+            <span class="material-symbols-rounded">save</span> Guardar Cambios
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet.js JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- App JS -->
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,176 +1,53 @@
 // ============================================================
-//  SOS911 — app.js  |  Vanilla JS — Sin librerías externas
+//  SOS911 — app.js  |  Vanilla JS + Leaflet.js Mapa Dinámico
 // ============================================================
 
 const DEFAULT_CONTACTS = [
-  { id: 1, name: 'Ana García',   phone: '+54 11 1234-5678' },
-  { id: 2, name: 'Carlos Ruiz',  phone: '+54 11 8765-4321' },
+  { id: 1, name: 'Ana García (Mamá)', phone: '+593 99 123 4567', relation: 'Familiar' },
+  { id: 2, name: 'Carlos Ruiz (Hermano)', phone: '+593 98 765 4321', relation: 'Familiar' },
 ];
 
-// ── UTILIDADES ───────────────────────────────────────────────
-function getContacts() {
-  const stored = localStorage.getItem('sos911_contacts');
-  if (!stored) {
-    localStorage.setItem('sos911_contacts', JSON.stringify(DEFAULT_CONTACTS));
-    return DEFAULT_CONTACTS;
-  }
-  return JSON.parse(stored);
-}
+const DEFAULT_PROFILE = {
+  name: 'Usuario SOS911',
+  phone: '+593 99 000 1122',
+  email: 'contacto@sos911.app',
+  address: 'Centro Urbano Principal',
+  medical: 'Sin alergias registradas'
+};
 
-function saveContacts(contacts) {
-  localStorage.setItem('sos911_contacts', JSON.stringify(contacts));
-}
+const DEFAULT_STATE = {
+  status: 'SECURE', // 'SECURE' | 'EMERGENCY'
+  incident: null,   // { id, type, name, icon, ts, lat, lng }
+  logs: [],
+  user: DEFAULT_PROFILE
+};
 
-function nextId(contacts) {
-  return contacts.length ? Math.max(...contacts.map(c => c.id)) + 1 : 1;
-}
+// ── ESTADO GLOBAL ─────────────────────────────────────────────
+let state = {};
+let leafletMap = null;
+let userMarker = null;
+let policeMarker = null;
+let userCoords = { lat: -0.180653, lng: -78.467838 }; // Coordenadas iniciales (Quito / Ecuador por defecto)
+let watchPositionId = null;
 
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
+// Temporizadores y Hold
+let holdTimer = null;
+let holdBtn = null;
+let holdProgress = 0;
+let emergencyTimer = null;
+let emergencySeconds = 0;
+let dispatchStep = 0;
+
+// ── UTILIDADES ────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
 
 function escHtml(str) {
-  return String(str).replace(/[&<>"']/g, c =>
+  return String(str || '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function escapeHtml(str) {
-  return escHtml(str);
-}
-
-// ──────────────────────────────────────────────────────
-// ACTION CHECKLISTS
-// ──────────────────────────────────────────────────────
-const PLANS = {
-  general: {
-    title: '📋 Plan Preventivo General',
-    items: [
-      'Revisar que los extintores estén cargados y accesibles.',
-      'Mantener las salidas de emergencia despejadas y señalizadas.',
-      'Tener el directorio de emergencias visible en la caja registradora.',
-      'Verificar que las cámaras de seguridad funcionen correctamente.'
-    ]
-  },
-  robo: {
-    title: '👥 Plan: Robo / Intruso Activo',
-    items: [
-      'No forcejear ni resistir la entrega de dinero o bienes.',
-      'Mantener distancia y no establecer contacto visual desafiante.',
-      'Activar la alerta SOS-911 tan pronto sea seguro hacerlo.',
-      'Una vez el intruso se retire, cerrar el local y preservar la escena.',
-      'Memorizar rasgos físicos: altura, ropa, vehículo de escape.',
-    ]
-  },
-  incendio: {
-    title: '🔥 Plan: Incendio / Cortocircuito',
-    items: [
-      'Suspender la energía general en el breaker principal.',
-      'Evacuar calmadamente a todos los clientes y empleados.',
-      'Tomar el extintor PQS y ubicarse a favor del viento.',
-      'No abrir ventanas ni puertas que puedan avivar el fuego.',
-      'Guiar a los bomberos a la entrada al llegar.',
-    ]
-  },
-  medica: {
-    title: '🚑 Plan: Emergencia Médica',
-    items: [
-      'Evaluar el entorno antes de prestar asistencia (seguridad).',
-      'Verificar el estado de consciencia sin mover bruscamente al paciente.',
-      'Designar a alguien para esperar a la ambulancia en la entrada.',
-      'Localizar el botiquín de primeros auxilios del local.',
-      'No administrar medicamentos sin indicación del personal médico.',
-    ]
-  }
-};
-
-// ──────────────────────────────────────────────────────
-// NEIGHBOR MESSAGES
-// ──────────────────────────────────────────────────────
-const NEIGHBORS = {
-  DON_PANCHO: 'Don Pancho',
-  FARMACIA_SAN_JUAN: 'Farmacia San Juan',
-  PELUQUERIA_ESTILOS: 'Peluquería Estilos',
-  FERRETERIA_EXPRES: 'Ferretería Exprés',
-  LICORERIA_EL_PASO: 'Licorería El Paso'
-};
-
-const NEIGHBOR_MSGS = {
-  robo: [
-    { sender: NEIGHBORS.DON_PANCHO, text: '¡Elena, cierro mi local y llamo al patrullero ya!' },
-    { sender: NEIGHBORS.FARMACIA_SAN_JUAN, text: 'Vi una moto arrancar rápido por la esquina. ¿Estás bien?' },
-    { sender: NEIGHBORS.PELUQUERIA_ESTILOS, text: '¡Patrulla en camino, escucho las sirenas!' },
-  ],
-  incendio: [
-    { sender: NEIGHBORS.FERRETERIA_EXPRES, text: '¡Tengo dos extintores CO₂ listos si los necesitan!' },
-    { sender: NEIGHBORS.DON_PANCHO, text: 'Bomberos confirmados. La unidad 4 ya viene en ruta.' },
-    { sender: NEIGHBORS.LICORERIA_EL_PASO, text: '¿Cortamos el suministro de gas de la cuadra?' },
-  ],
-  medica: [
-    { sender: NEIGHBORS.FARMACIA_SAN_JUAN, text: '¿Necesitan gasas o suero mientras llega la ambulancia?' },
-    { sender: NEIGHBORS.PELUQUERIA_ESTILOS, text: 'Mando a mi asistente a controlar el tráfico en la entrada.' },
-  ],
-  general: [
-    { sender: NEIGHBORS.DON_PANCHO, text: 'Recibida la alerta. Monitoreando mis cámaras.' },
-    { sender: NEIGHBORS.FERRETERIA_EXPRES, text: 'Portones cerrados en prevención. Avisen cualquier novedad.' },
-  ]
-};
-
-// ──────────────────────────────────────────────────────
-// DEFAULT STATE & APP STATE
-// ──────────────────────────────────────────────────────
-const DEFAULT_STATE = {
-  status: 'SECURE',           // 'SECURE' | 'EMERGENCY'
-  incident: null,             // { type, name, icon, ts, id }
-  badgeUnlocked: false,
-  quizScore: 0,
-  logs: []
-};
-
-let state = {};
-let holdTimer    = null;
-let holdBtn      = null;
-let holdProgress = 0;
-let eTimer       = null;  // emergency interval
-let eSeconds     = 0;
-let chatQueue    = [];
-let chatPointer  = 0;
-let quizIndex    = 0;
-let quizTempScore = 0;
-let activeScreen = 'inicio';
-let selectedNode = null;
-let isActivating = false;
-
-// ──────────────────────────────────────────────────────
-// DOM HELPERS
-// ──────────────────────────────────────────────────────
-const $ = (id) => {
-  const element = document.getElementById(id);
-  if (!element) {
-    console.warn(`Elemento con id "${id}" no encontrado.`);
-    return null;
-  }
-  return element;
-};
-const $$ = sel => document.querySelectorAll(sel);
-
-// ──────────────────────────────────────────────────────
-// LOCALSTORAGE
-// ──────────────────────────────────────────────────────
-function loadState() {
-  try {
-    const raw = localStorage.getItem('sos911');
-    state = raw ? JSON.parse(raw) : deepClone(DEFAULT_STATE);
-  } catch (_) {
-    state = deepClone(DEFAULT_STATE);
-  }
-}
-
-function saveState() {
-  localStorage.setItem('sos911', JSON.stringify(state));
-}
-
-// ── TOAST ────────────────────────────────────────────────────
-function showToast(msg, color = '#1E293B', duration = 3000) {
+function showToast(msg, color = '#2563EB', duration = 3500) {
   const existing = document.querySelector('.sos-toast');
   if (existing) existing.remove();
 
@@ -179,19 +56,19 @@ function showToast(msg, color = '#1E293B', duration = 3000) {
   toast.textContent = msg;
   Object.assign(toast.style, {
     position: 'fixed',
-    bottom: '100px',
+    bottom: '80px',
     left: '50%',
     transform: 'translateX(-50%)',
     background: color,
     color: '#fff',
-    padding: '12px 24px',
-    borderRadius: '999px',
+    padding: '12px 20px',
+    borderRadius: '9999px',
     fontFamily: "'Inter', sans-serif",
     fontSize: '13px',
     fontWeight: '600',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
-    zIndex: '9999',
-    maxWidth: '340px',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+    zIndex: '99999',
+    maxWidth: '360px',
     textAlign: 'center',
     opacity: '0',
     transition: 'opacity 0.3s ease',
@@ -205,83 +82,224 @@ function showToast(msg, color = '#1E293B', duration = 3000) {
   }, duration);
 }
 
-// ── NAVEGACIÓN ENTRE PESTAÑAS ─────────────────────────────────
+// ── LOCALSTORAGE ──────────────────────────────────────────────
+function loadState() {
+  try {
+    const stored = localStorage.getItem('sos911_app_state');
+    state = stored ? JSON.parse(stored) : JSON.parse(JSON.stringify(DEFAULT_STATE));
+  } catch (_) {
+    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  }
+
+  // Cargar contactos
+  const contactsStored = localStorage.getItem('sos911_contacts');
+  if (!contactsStored) {
+    localStorage.setItem('sos911_contacts', JSON.stringify(DEFAULT_CONTACTS));
+  }
+}
+
+function saveState() {
+  localStorage.setItem('sos911_app_state', JSON.stringify(state));
+}
+
+function getContacts() {
+  try {
+    const raw = localStorage.getItem('sos911_contacts');
+    return raw ? JSON.parse(raw) : DEFAULT_CONTACTS;
+  } catch (_) {
+    return DEFAULT_CONTACTS;
+  }
+}
+
+function saveContacts(contacts) {
+  localStorage.setItem('sos911_contacts', JSON.stringify(contacts));
+  renderContacts();
+  updateHomeContactCount();
+}
+
+// ── NAVEGACIÓN Y PESTAÑAS ─────────────────────────────────────
 function navigateTo(tabId) {
-  document.querySelectorAll('.view-panel').forEach(panel => {
+  $$('.view-panel').forEach(panel => {
     panel.classList.toggle('hidden', panel.id !== tabId);
   });
-  document.querySelectorAll('.nav-item').forEach(btn => {
+  $$('.nav-item').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
   });
+
+  if (tabId === 'view-map') {
+    setTimeout(() => {
+      if (leafletMap) {
+        leafletMap.invalidateSize();
+      } else {
+        initLeafletMap();
+      }
+    }, 200);
+  }
 }
 
 function initNav() {
-  document.querySelectorAll('.nav-item').forEach(btn => {
-    btn.addEventListener('click', () => navigateTo(btn.getAttribute('data-tab')));
+  $$('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigateTo(btn.getAttribute('data-tab'));
+    });
   });
-}
 
-function switchScreen(name) {
-  if (name === activeScreen) return;
-  activeScreen = name;
-  const popup = $('nodePopup');
-  if (popup) {
-    popup.classList.remove('visible');
+  if ($('bannerMapBtn')) {
+    $('bannerMapBtn').addEventListener('click', () => navigateTo('view-map'));
   }
 
-  $$('.screen').forEach(s => s.classList.toggle('hidden', s.dataset.screen !== name));
-  $$('.bn-item').forEach(b => b.classList.toggle('active', b.dataset.target === name));
+  if ($('myLocationBtn')) {
+    $('myLocationBtn').addEventListener('click', () => navigateTo('view-map'));
+  }
+
+  if ($('quickContactsBtn')) {
+    $('quickContactsBtn').addEventListener('click', () => navigateTo('view-contacts'));
+  }
 }
 
-// ── BOTÓN DE PÁNICO SIMPLE ───────────────────────────────────
-function initPanicButton() {
-  const btn = document.querySelector('.panic-button');
-  if (!btn) return;
+// ── MAPA INTERACTIVO LEAFLET Y GPS ────────────────────────────
+function initLeafletMap() {
+  const mapContainer = $('map');
+  if (!mapContainer || leafletMap) return;
 
-  btn.addEventListener('click', () => {
-    if (navigator.vibrate) {
-      navigator.vibrate([300, 100, 300, 100, 600]);
+  leafletMap = L.map('map', {
+    center: [userCoords.lat, userCoords.lng],
+    zoom: 15,
+    zoomControl: false
+  });
+
+  // Capa de Mapa Oscuro (CartoDB Dark Matter / OpenStreetMap)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(leafletMap);
+
+  // Marcador de Ubicación del Usuario
+  const userIcon = L.divIcon({
+    className: 'user-gps-marker',
+    html: `<div style="background:#EF4444; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 15px #EF4444; animation: pulseHeart 1.5s infinite;"></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+
+  userMarker = L.marker([userCoords.lat, userCoords.lng], { icon: userIcon }).addTo(leafletMap);
+  userMarker.bindPopup("<b>¡Tu Ubicación Actual!</b><br>Rastreando coordenadas GPS...").openPopup();
+
+  // Iniciar Rastreos GPS Reales
+  startGPSTracking();
+}
+
+function startGPSTracking() {
+  if (!navigator.geolocation) {
+    if ($('liveAddressText')) $('liveAddressText').textContent = 'Geolocalización no soportada por el navegador';
+    return;
+  }
+
+  watchPositionId = navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      userCoords = { lat, lng };
+
+      if (userMarker) {
+        userMarker.setLatLng([lat, lng]);
+      }
+      if (leafletMap) {
+        leafletMap.panTo([lat, lng]);
+      }
+
+      if ($('liveCoordsText')) {
+        $('liveCoordsText').textContent = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+      }
+
+      // Geocodificación inversa simulada / real con OSM Nominatim
+      fetchAddressFromCoords(lat, lng);
+    },
+    err => {
+      console.warn('GPS Error/Permiso denegado:', err.message);
+      if ($('liveAddressText')) $('liveAddressText').textContent = 'Ubicación basada en IP aproximada';
+      if ($('liveCoordsText')) $('liveCoordsText').textContent = `Lat: ${userCoords.lat.toFixed(4)}, Lng: ${userCoords.lng.toFixed(4)}`;
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+  );
+}
+
+function fetchAddressFromCoords(lat, lng) {
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`)
+    .then(res => res.json())
+    .then(data => {
+      const address = data.display_name || `${data.address?.road || 'Calle sin nombre'}, ${data.address?.city || 'Ciudad'}`;
+      if ($('liveAddressText')) $('liveAddressText').textContent = address;
+      if ($('homeLocationPreview')) $('homeLocationPreview').textContent = address.split(',')[0];
+    })
+    .catch(() => {
+      if ($('liveAddressText')) $('liveAddressText').textContent = `Sector Urbano (Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)})`;
+    });
+}
+
+// ── COMPARTIR UBICACIÓN ──────────────────────────────────────
+function initShareLocation() {
+  const shareBtn = $('shareLocationBtn');
+  if (!shareBtn) return;
+
+  shareBtn.addEventListener('click', () => {
+    const mapsUrl = `https://maps.google.com/?q=${userCoords.lat},${userCoords.lng}`;
+    const shareText = `🚨 ¡ALERTA SOS911! Mi ubicación en tiempo real es: ${mapsUrl}`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(shareText)
+        .then(() => showToast('🔗 Enlace de ubicación copiado al portapapeles', '#16A34A'))
+        .catch(() => showToast('📍 Coordenadas: ' + mapsUrl, '#2563EB', 5000));
+    } else {
+      showToast('📍 Coordenadas: ' + mapsUrl, '#2563EB', 5000);
     }
   });
 }
 
-// ──────────────────────────────────────────────────────
-// HOLD-TO-ACTIVATE PANIC BUTTONS
-// ──────────────────────────────────────────────────────
-const HOLD_DURATION_MS = 3000; // 3 seconds
-const HOLD_INTERVAL_MS = 40;   // ~25fps
+// ── LÓGICA DE PRESIONAR 3 SEGUNDOS (BOTÓN DE PÁNICO) ─────────
+const HOLD_DURATION_MS = 3000;
+const HOLD_INTERVAL_MS = 30;
 const HOLD_STEP = (HOLD_INTERVAL_MS / HOLD_DURATION_MS) * 100;
 
 function initPanicButtons() {
   $$('.panic-btn').forEach(btn => {
-    btn.addEventListener('touchstart', e => { e.preventDefault(); startHold(btn); }, { passive: false });
-    btn.addEventListener('touchend',   cancelHold);
+    // Touch Events
+    btn.addEventListener('touchstart', e => {
+      if (e.cancelable) e.preventDefault();
+      startHold(btn);
+    }, { passive: false });
+    btn.addEventListener('touchend', cancelHold);
     btn.addEventListener('touchcancel', cancelHold);
-    btn.addEventListener('touchmove',  cancelHold);
+    btn.addEventListener('touchmove', cancelHold);
 
-    btn.addEventListener('mousedown',  () => startHold(btn));
-    btn.addEventListener('mouseup',    cancelHold);
+    // Mouse Events
+    btn.addEventListener('mousedown', () => startHold(btn));
+    btn.addEventListener('mouseup', cancelHold);
     btn.addEventListener('mouseleave', cancelHold);
   });
 }
 
 function startHold(btn) {
-  if (state.status === 'EMERGENCY') return;
-  if (holdTimer || isActivating) return;
+  if (state.status === 'EMERGENCY') {
+    showToast('⚡ Alerta de emergencia ya está activa', '#DC2626');
+    navigateTo('view-map');
+    return;
+  }
+  if (holdTimer) return;
 
-  holdBtn      = btn;
+  holdBtn = btn;
   holdProgress = 0;
-  isActivating = true;
-
   btn.classList.add('holding');
-  const bar = btn.querySelector('.pb-hold-bar');
-  if (!bar) return;
-  bar.style.transition = 'none';
-  bar.style.width = '0%';
+
+  const holdBar = btn.querySelector('.pb-hold-bar');
+  if (holdBar) holdBar.style.width = '0%';
+
+  if (navigator.vibrate) navigator.vibrate(50);
 
   holdTimer = setInterval(() => {
     holdProgress = Math.min(holdProgress + HOLD_STEP, 100);
-    bar.style.width = holdProgress + '%';
+    if (holdBar) holdBar.style.width = holdProgress + '%';
+
     if (holdProgress >= 100) {
       finishHold();
     }
@@ -293,13 +311,12 @@ function cancelHold() {
     clearInterval(holdTimer);
     holdTimer = null;
   }
-  isActivating = false;
-
   if (holdBtn) {
-    const bar = holdBtn.querySelector('.pb-hold-bar');
-    if (bar) {
-      bar.style.transition = 'width 0.3s ease';
-      bar.style.width = '0%';
+    const holdBar = holdBtn.querySelector('.pb-hold-bar');
+    if (holdBar) {
+      holdBar.style.transition = 'width 0.2s ease';
+      holdBar.style.width = '0%';
+      setTimeout(() => { holdBar.style.transition = 'none'; }, 200);
     }
     holdBtn.classList.remove('holding');
     holdBtn = null;
@@ -312,538 +329,463 @@ function finishHold() {
   holdTimer = null;
 
   const btn = holdBtn;
-  if (btn) {
-    btn.classList.remove('holding');
-    const bar = btn.querySelector('.pb-hold-bar');
-    if (bar) {
-      bar.style.transition = 'width 0.3s ease';
-      bar.style.width = '0%';
-    }
+  if (holdBtn) {
+    holdBtn.classList.remove('holding');
+    const holdBar = holdBtn.querySelector('.pb-hold-bar');
+    if (holdBar) holdBar.style.width = '0%';
     holdBtn = null;
   }
   holdProgress = 0;
 
   if (btn) {
-    activateEmergency(btn.dataset.type, btn.dataset.name, btn.dataset.icon);
-    showToast('🚨 ¡ALERTA DE EMERGENCIA ACTIVADA!', '#C1121F', 4000);
-    setTimeout(() => navigateTo('view-map'), 600);
+    const type = btn.dataset.type || 'general';
+    const name = btn.dataset.name || 'Emergencia General';
+    const icon = btn.dataset.icon || 'warning';
+
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
+
+    activateEmergency(type, name, icon);
   }
 }
 
-// ──────────────────────────────────────────────────────
-// EMERGENCY ACTIVATION
-// ──────────────────────────────────────────────────────
-const TYPE_CFG = {
-  robo:     { color: '#EF4444', shadow: 'rgba(239,68,68,0.4)' },
-  incendio: { color: '#F97316', shadow: 'rgba(249,115,22,0.4)' },
-  medica:   { color: '#3B82F6', shadow: 'rgba(59,130,246,0.4)' },
-  general:  { color: '#F59E0B', shadow: 'rgba(245,158,11,0.4)' },
-};
-
-function activateEmergency(type, name, icon, savedId = null) {
-  isActivating = false;
-
-  const cfg = TYPE_CFG[type] || TYPE_CFG.general;
-  const inc = {
-    id: savedId || `inc-${Date.now()}`,
-    type, name, icon,
-    ts: new Date().toISOString()
+// ── ACTIVACIÓN Y DESPACHO DE EMERGENCIA ───────────────────────
+function activateEmergency(type, name, icon) {
+  state.status = 'EMERGENCY';
+  state.incident = {
+    id: `INC-${Date.now()}`,
+    type,
+    name,
+    icon,
+    ts: new Date().toISOString(),
+    lat: userCoords.lat,
+    lng: userCoords.lng
   };
+  saveState();
 
-  if (state.status !== 'EMERGENCY') {
-    state.status = 'EMERGENCY';
-    state.incident = inc;
-    saveState();
-    console.info(`[SOS] Emergencia ${type} iniciada (${inc.id})`);
+  // Actualizar UI
+  if ($('emergencyBanner')) $('emergencyBanner').classList.remove('hidden');
+  if ($('ebTitle')) $('ebTitle').textContent = `⚡ ALERTA ACTIVADA: ${name.toUpperCase()}`;
+  if ($('statusLabel')) $('statusLabel').textContent = '¡EMERGENCIA ACTIVA!';
+  if ($('statusDot')) {
+    $('statusDot').className = 'status-dot-mini red';
   }
-
-  const banner = $('emergencyBanner');
-  if (banner) banner.classList.add('active');
-  if ($('ebIcon')) $('ebIcon').textContent  = icon;
-  if ($('ebTitle')) $('ebTitle').textContent = `⚡ ${name.toUpperCase()}`;
-  eSeconds = 0;
-  updateEbTimer();
-
-  if ($('statusLabel')) {
-    $('statusLabel').textContent = '¡ALERTA ACTIVA!';
-    $('statusLabel').style.color = cfg.color;
-  }
-  if ($('statusDot')) $('statusDot').className = 'pulse-dot danger';
-  if ($('merchantStatus')) $('merchantStatus').style.color = cfg.color;
-
-  if ($('appHeader')) {
-    $('appHeader').style.borderBottomColor = cfg.color;
-    $('appHeader').style.boxShadow = `0 1px 0 0 ${cfg.shadow}`;
-  }
-
-  if ($('nav-inicio')) $('nav-inicio').classList.add('emergency-active');
-
+  if ($('cancelEmergencyBtn')) $('cancelEmergencyBtn').classList.remove('hidden');
   if ($('dispatchSection')) $('dispatchSection').style.display = 'block';
+
+  // Cambiar vista al mapa
+  navigateTo('view-map');
+  showToast(`🚨 ¡ALERTA DE ${name.toUpperCase()} TRANSMITIDA!`, '#DC2626', 4000);
+
+  // Iniciar Contador
+  emergencySeconds = 0;
+  updateEmergencyTimerText();
+  if (emergencyTimer) clearInterval(emergencyTimer);
+  emergencyTimer = setInterval(emergencyTick, 1000);
+
+  // Reiniciar timeline y simular notificaciones
   resetTimeline();
-
-  setCenterNodeColor(cfg.color);
-
-  chatQueue = [];
-  chatPointer = 0;
-
-  clearChat();
-  addChat('system', 'Red SOS:', `🚨 Alerta [${name}] transmitida con coordenadas al centro de despacho.`);
-
-  renderPlan(type);
-
-  chatQueue = [...(NEIGHBOR_MSGS[type] || NEIGHBOR_MSGS.general)];
-  chatPointer = 0;
-
-  if (eTimer) clearInterval(eTimer);
-  eTimer = setInterval(emergencyTick, 1000);
+  simulateContactsNotified();
+  addChatMsg('system', `🚨 Alerta de ${name} generada en Lat: ${userCoords.lat.toFixed(4)}, Lng: ${userCoords.lng.toFixed(4)}.`);
 }
 
 function emergencyTick() {
-  eSeconds++;
-  updateEbTimer();
-  simulateDispatch(eSeconds);
+  emergencySeconds++;
+  updateEmergencyTimerText();
+  runDispatchSimulation(emergencySeconds);
 }
 
-function updateEbTimer() {
-  const m = String(Math.floor(eSeconds / 60)).padStart(2, '0');
-  const s = String(eSeconds % 60).padStart(2, '0');
+function updateEmergencyTimerText() {
+  const m = String(Math.floor(emergencySeconds / 60)).padStart(2, '0');
+  const s = String(emergencySeconds % 60).padStart(2, '0');
   if ($('ebTimer')) $('ebTimer').textContent = `Tiempo activo: ${m}:${s}`;
 }
 
-// ──────────────────────────────────────────────────────
-// DISPATCH SIMULATION
-// ──────────────────────────────────────────────────────
 function resetTimeline() {
-  ['tl1','tl2','tl3','tl4'].forEach(id => {
+  ['tl1', 'tl2', 'tl3', 'tl4'].forEach(id => {
     const el = $(id);
-    if (el) el.classList.remove('active','done');
+    if (el) el.className = 'timeline-step';
   });
+  if ($('tl1')) $('tl1').classList.add('active');
 }
 
-function markTlDone(id) {
+function runDispatchSimulation(s) {
+  if (s === 4) {
+    markStep('tl1', 'done');
+    markStep('tl2', 'active');
+    if ($('tl2desc')) $('tl2desc').textContent = 'Unidad Policial #14 de Cuadrante asignada.';
+    addChatMsg('system', 'Central ECU-911: Unidad Patrulla #14 despachada.');
+  }
+  if (s === 8) {
+    addChatMsg('neighbor', 'Ana García: ¡Hijo, recibí tu alerta! Ya llamé a la policía local.');
+  }
+  if (s === 14) {
+    markStep('tl2', 'done');
+    markStep('tl3', 'active');
+    if ($('tl3desc')) $('tl3desc').textContent = 'Patrulla en movimiento (ETA 2 minutos).';
+    addChatMsg('system', 'Oficial en Ruta: Nos aproximamos por la avenida principal.');
+    addPoliceMarkerOnMap();
+  }
+  if (s === 22) {
+    addChatMsg('neighbor', 'Carlos Ruiz: Estoy a 2 cuadras, voy para tu posición.');
+  }
+  if (s === 35) {
+    markStep('tl3', 'done');
+    markStep('tl4', 'active');
+    addChatMsg('system', 'Oficial en Escena: Patrulla 14 ha arribado a la ubicación.');
+  }
+}
+
+function markStep(id, stateClass) {
   const el = $(id);
   if (el) {
-    el.classList.remove('active');
-    el.classList.add('done');
-  }
-}
-
-function markTlActive(id) {
-  const el = $(id);
-  if (el) el.classList.add('active');
-}
-
-function simulateDispatch(s) {
-  if (state.status !== 'EMERGENCY') return;
-
-  if (s === 5) {
-    markTlDone('tl1'); markTlActive('tl2');
-    if ($('tl2desc')) $('tl2desc').textContent = 'Unidad #24 de Policía del Distrito asignada.';
-    addChat('system', '911 Central:', 'Unidad 24 en camino con coordenadas confirmadas.');
-  }
-  if (s === 8 && chatPointer < chatQueue.length) {
-    const m = chatQueue[chatPointer++];
-    if (m) addChat('neighbor', m.sender + ':', m.text);
-  }
-  if (s === 15) {
-    markTlDone('tl2'); markTlActive('tl3');
-    if ($('tl3desc')) $('tl3desc').textContent = 'Patrullero en ruta — ETA estimada: 3 min.';
-    addChat('system', 'Dispatcher:', 'Unidad policial en ruta desde estación Centro (ETA 3 min).');
-  }
-  if (s === 18 && chatPointer < chatQueue.length) {
-    const m = chatQueue[chatPointer++];
-    if (m) addChat('neighbor', m.sender + ':', m.text);
-  }
-  if (s === 28 && chatPointer < chatQueue.length) {
-    const m = chatQueue[chatPointer++];
-    if (m) addChat('neighbor', m.sender + ':', m.text);
-  }
-  if (s === 40) {
-    markTlDone('tl3'); markTlActive('tl4');
-    addChat('system', 'Patrulla 24:', 'Llegada en Av. Principal 123. Oficiales entrando al comercio.');
-  }
-}
-
-// ──────────────────────────────────────────────────────
-// MAP — Center node color
-// ──────────────────────────────────────────────────────
-function setCenterNodeColor(color) {
-  const node = $('centerNode');
-  const glow1 = $('centerGlow1');
-  const glow2 = $('centerGlow2');
-  const dot  = $('centerStatusDot');
-  if (!node || !glow1 || !glow2 || !dot) return;
-
-  if (color) {
-    node.setAttribute('stroke', color);
-    node.setAttribute('fill', '#1c1a00');
-    glow1.setAttribute('stroke', color);
-    glow2.setAttribute('stroke', color);
-    dot.setAttribute('fill', color);
-  } else {
-    node.setAttribute('stroke', '#3B82F6');
-    node.setAttribute('fill', '#1e3a5f');
-    glow1.setAttribute('stroke', '#3B82F6');
-    glow2.setAttribute('stroke', '#3B82F6');
-    dot.setAttribute('fill', '#10B981');
-  }
-}
-
-// ──────────────────────────────────────────────────────
-// CANCEL EMERGENCY → RESOLUTION MODAL
-// ──────────────────────────────────────────────────────
-function initCancelBtn() {
-  if ($('cancelBtn')) $('cancelBtn').addEventListener('click', () => openResolutionModal());
-  if ($('rmDismiss')) $('rmDismiss').addEventListener('click', () => closeResolutionModal());
-  if ($('rmSubmit'))  $('rmSubmit').addEventListener('click', submitResolution);
-}
-
-function openResolutionModal() {
-  if ($('resolutionBackdrop')) $('resolutionBackdrop').classList.add('open');
-  if ($('rmText')) $('rmText').value = '';
-}
-
-function closeResolutionModal() {
-  if ($('resolutionBackdrop')) $('resolutionBackdrop').classList.remove('open');
-}
-
-function submitResolution() {
-  const rmText = $('rmText');
-  const text = rmText ? rmText.value.trim() : '';
-
-  if (text.length < 6) {
-    if (rmText) {
-      rmText.style.borderColor = '#EF4444';
-      rmText.placeholder = '⚠️ Por favor ingrese un informe (mínimo 6 caracteres).';
-      setTimeout(() => { rmText.style.borderColor = ''; }, 2000);
+    if (stateClass === 'done') {
+      el.classList.remove('active');
+      el.classList.add('done');
+    } else if (stateClass === 'active') {
+      el.classList.add('active');
     }
+  }
+}
+
+function addPoliceMarkerOnMap() {
+  if (!leafletMap) return;
+  if (policeMarker) leafletMap.removeLayer(policeMarker);
+
+  const policeIcon = L.divIcon({
+    className: 'police-gps-marker',
+    html: `<div style="background:#2563EB; width:26px; height:26px; border-radius:50%; border:3px solid white; box-shadow:0 0 15px #2563EB; display:flex; align-items:center; justify-content:center; color:white; font-size:12px;">🚔</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13]
+  });
+
+  const pLat = userCoords.lat + 0.003;
+  const pLng = userCoords.lng + 0.003;
+
+  policeMarker = L.marker([pLat, pLng], { icon: policeIcon }).addTo(leafletMap);
+  policeMarker.bindPopup("<b>Patrulla ECU911 #14</b><br>En camino a tu posición").openPopup();
+}
+
+function simulateContactsNotified() {
+  const container = $('notifiedContactsList');
+  if (!container) return;
+
+  const contacts = getContacts();
+  if (contacts.length === 0) {
+    container.innerHTML = `<p class="empty-state-text">No tienes contactos registrados en tu Red de Apoyo.</p>`;
     return;
   }
 
-  const inc = state.incident || {};
-  state.logs.unshift({
-    id:         inc.id || Date.now(),
-    type:       inc.type || 'general',
-    name:       inc.name || 'Alerta',
-    icon:       inc.icon || '⚠️',
-    ts:         inc.ts || new Date().toISOString(),
-    resolvedAt: new Date().toISOString(),
-    summary:    text
-  });
-
-  state.status   = 'SECURE';
-  state.incident = null;
-  saveState();
-
-  if (eTimer) { clearInterval(eTimer); eTimer = null; }
-  eSeconds = 0;
-  chatQueue = [];
-  chatPointer = 0;
-
-  closeResolutionModal();
-  if ($('emergencyBanner')) $('emergencyBanner').classList.remove('active');
-  if ($('dispatchSection')) $('dispatchSection').style.display = 'none';
-
-  if ($('statusLabel')) {
-    $('statusLabel').textContent = 'Seguro';
-    $('statusLabel').style.color = '';
-  }
-  if ($('statusDot')) $('statusDot').className = 'pulse-dot';
-  if ($('merchantStatus')) $('merchantStatus').style.color = '';
-  if ($('appHeader')) {
-    $('appHeader').style.borderBottomColor = '';
-    $('appHeader').style.boxShadow  = '';
-  }
-  if ($('nav-inicio')) $('nav-inicio').classList.remove('emergency-active');
-
-  setCenterNodeColor(null);
-  addChat('system', 'SOS-911:', '✅ Emergencia cerrada. Estado seguro restaurado.');
-
-  renderPlan('general');
-  renderLogs();
-  switchScreen('historial');
+  container.innerHTML = contacts.map(c => `
+    <div class="contact-item">
+      <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
+      <div class="contact-details">
+        <strong>${escHtml(c.name)}</strong>
+        <span>${escHtml(c.phone)}</span>
+      </div>
+      <span class="status-dot-mini green" title="SMS Enviado"></span>
+    </div>
+  `).join('');
 }
 
-// ──────────────────────────────────────────────────────
-// MAP NODE INTERACTION
-// ──────────────────────────────────────────────────────
-function initMapNodes() {
-  $$('.map-node').forEach(node => {
-    node.addEventListener('click', () => {
-      if ($('nodePopup')) $('nodePopup').classList.remove('visible');
-      const name = node.dataset.name || 'Comercio';
-      const type = node.dataset.type || 'Sin categoría';
-      selectedNode = { name, type };
-      if ($('npName')) $('npName').textContent = name;
-      if ($('npType')) $('npType').textContent = type;
-      if ($('nodePopup')) $('nodePopup').classList.add('visible');
-    });
-  });
-
-  if ($('npClose')) {
-    $('npClose').addEventListener('click', () => {
-      if ($('nodePopup')) $('nodePopup').classList.remove('visible');
-      selectedNode = null;
-    });
-  }
-
-  if ($('npCheckin')) {
-    $('npCheckin').addEventListener('click', () => {
-      if (!selectedNode) return;
-      if (state.status === 'EMERGENCY') return;
-      addChat('merchant', 'Yo:', `Envié check-in de seguridad a [${selectedNode.name}].`);
-      if ($('nodePopup')) $('nodePopup').classList.remove('visible');
-      const n = selectedNode;
-      selectedNode = null;
-      setTimeout(() => {
-        if (state.status === 'EMERGENCY') return;
-        const replies = [
-          'Todo tranquilo por acá, gracias por preguntar.',
-          'Sin novedades en este lado. Seguimos atentos.',
-          'Todo en orden. Avisen si necesitan algo.'
-        ];
-        addChat('neighbor', n.name + ':', replies[Math.floor(Math.random() * replies.length)]);
-      }, 2500);
-    });
-  }
-}
-
-// ──────────────────────────────────────────────────────
-// CHAT FEED
-// ──────────────────────────────────────────────────────
-function clearChat() {
-  const feed = $('chatFeed');
-  if (feed) feed.innerHTML = '';
-}
-
-function addChat(cls, sender, text) {
+function addChatMsg(cls, text) {
   const feed = $('chatFeed');
   if (!feed) return;
-  const el = document.createElement('div');
-  el.className = `chat-msg ${cls}`;
-  el.innerHTML = `<span class="cm-sender">${sender}</span> ${escHtml(text)}`;
-  feed.appendChild(el);
+  const item = document.createElement('div');
+  item.className = `chat-msg ${cls}`;
+  item.innerHTML = escHtml(text);
+  feed.appendChild(item);
   feed.scrollTop = feed.scrollHeight;
 }
 
-// ──────────────────────────────────────────────────────
-// PLANS / CHECKLISTS
-// ──────────────────────────────────────────────────────
-function renderPlan(type) {
-  const plan = PLANS[type] || PLANS.general;
-  if ($('planLabel')) $('planLabel').textContent = plan.title;
+// ── MODAL CANCELAR Y RESOLVER EMERGENCIA ──────────────────────
+function initResolutionModal() {
+  const cancelBtn = $('cancelEmergencyBtn');
+  const backdrop = $('resolutionBackdrop');
+  const dismissBtn = $('rmDismiss');
+  const rmCancelBtn = $('rmCancelBtn');
+  const submitBtn = $('rmSubmit');
 
-  const list = $('checklist');
-  if (!list) return;
-  list.innerHTML = '';
-
-  plan.items.forEach(text => {
-    const item = document.createElement('div');
-    item.className = 'contact-item';
-    item.innerHTML = `
-      <div class="contact-avatar">
-        <span class="material-symbols-rounded">check_circle</span>
-      </div>
-      <div class="contact-details">
-        <span>${escapeHtml(text)}</span>
-      </div>`;
-    list.appendChild(item);
-  });
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => backdrop.classList.add('open'));
+  }
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => backdrop.classList.remove('open'));
+  }
+  if (rmCancelBtn) {
+    rmCancelBtn.addEventListener('click', () => backdrop.classList.remove('open'));
+  }
+  if (submitBtn) {
+    submitBtn.addEventListener('click', submitResolution);
+  }
 }
 
-// ── RENDERIZADO DE CONTACTOS ──────────────────────────────────
+function submitResolution() {
+  const textInput = $('rmText');
+  const text = textInput ? textInput.value.trim() : '';
+
+  if (text.length < 6) {
+    showToast('⚠️ Escriba un informe explicativo (mínimo 6 caracteres).', '#D97706');
+    return;
+  }
+
+  const currentInc = state.incident || { type: 'general', name: 'Alerta' };
+
+  // Guardar en historial de logs
+  const logItem = {
+    id: currentInc.id || `INC-${Date.now()}`,
+    type: currentInc.type,
+    name: currentInc.name,
+    icon: currentInc.icon || 'warning',
+    ts: currentInc.ts || new Date().toISOString(),
+    closedTs: new Date().toISOString(),
+    resolution: text,
+    lat: userCoords.lat,
+    lng: userCoords.lng
+  };
+
+  state.logs.unshift(logItem);
+  state.status = 'SECURE';
+  state.incident = null;
+  saveState();
+
+  // Limpiar temporizadores
+  if (emergencyTimer) clearInterval(emergencyTimer);
+  emergencyTimer = null;
+  emergencySeconds = 0;
+
+  // Reset UI
+  if ($('emergencyBanner')) $('emergencyBanner').classList.add('hidden');
+  if ($('statusLabel')) $('statusLabel').textContent = 'Sistema Seguro';
+  if ($('statusDot')) $('statusDot').className = 'status-dot-mini green';
+  if ($('cancelEmergencyBtn')) $('cancelEmergencyBtn').classList.add('hidden');
+  if ($('dispatchSection')) $('dispatchSection').style.display = 'none';
+
+  if ($('resolutionBackdrop')) $('resolutionBackdrop').classList.remove('open');
+  if (textInput) textInput.value = '';
+
+  renderLogs();
+  showToast('✅ Alerta finalizada. Incidente guardado en historial.', '#16A34A');
+  navigateTo('view-history');
+}
+
+// ── GESTIÓN DE CONTACTOS (RF-02) ──────────────────────────────
 function renderContacts() {
-  const list = document.querySelector('.contact-list');
-  if (!list) return;
+  const container = $('contactsListContainer');
+  if (!container) return;
 
   const contacts = getContacts();
-  list.innerHTML = '';
-
   if (contacts.length === 0) {
-    list.innerHTML = `
-      <div style="text-align:center; padding: 24px; color: #94A3B8; font-size: 13px;">
-        No hay contactos de confianza.<br>Agrega uno abajo.
+    container.innerHTML = `
+      <div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 13px;">
+        No tienes contactos de confianza registrados.<br>Agrega uno en el formulario de abajo.
       </div>`;
     return;
   }
 
-  contacts.forEach(contact => {
-    const item = document.createElement('div');
-    item.className = 'contact-item';
-    item.dataset.id = contact.id;
-    item.innerHTML = `
-      <div class="contact-avatar">
-        <span class="material-symbols-rounded">person</span>
-      </div>
+  container.innerHTML = contacts.map(c => `
+    <div class="contact-item">
+      <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
       <div class="contact-details">
-        <strong>${escapeHtml(contact.name)}</strong>
-        <span>${escapeHtml(contact.phone)}</span>
+        <strong>${escHtml(c.name)}</strong>
+        <span>${escHtml(c.phone)} ${c.relation ? '• ' + escHtml(c.relation) : ''}</span>
       </div>
-      <button class="trash-btn" data-id="${contact.id}" title="Eliminar contacto">
-        <span class="material-symbols-rounded">delete</span>
-      </button>`;
-    list.appendChild(item);
-  });
-
-  list.querySelectorAll('.trash-btn').forEach(btn => {
-    btn.addEventListener('click', () => deleteContact(Number(btn.dataset.id)));
-  });
+      <div class="contact-actions">
+        <button class="icon-action-btn" onclick="openEditContact(${c.id})" title="Editar">
+          <span class="material-symbols-rounded">edit</span>
+        </button>
+        <button class="icon-action-btn delete" onclick="deleteContact(${c.id})" title="Eliminar">
+          <span class="material-symbols-rounded">delete</span>
+        </button>
+      </div>
+    </div>
+  `).join('');
 }
 
-function deleteContact(id) {
-  const contacts = getContacts().filter(c => c.id !== id);
-  saveContacts(contacts);
-  renderContacts();
-  showToast('Contacto eliminado', '#475569');
-}
+function initContactForm() {
+  const form = $('addContactForm');
+  if (!form) return;
 
-function initAddContact() {
-  const form    = document.querySelector('.add-contact-card');
-  const nameIn  = form?.querySelector('input[type="text"]:nth-of-type(1), input[placeholder="Ej. Maria Lopez"]');
-  const phoneIn = form?.querySelector('input[placeholder="+54 9..."]');
-  const saveBtn = form?.querySelector('.btn-red');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nameIn = $('contactNameInput');
+    const phoneIn = $('contactPhoneInput');
+    const relIn = $('contactRelationInput');
 
-  if (!form || !saveBtn) return;
-
-  saveBtn.addEventListener('click', () => {
-    const name  = nameIn?.value.trim();
+    const name = nameIn?.value.trim();
     const phone = phoneIn?.value.trim();
+    const relation = relIn?.value.trim();
 
     if (!name || !phone) {
-      showToast('⚠️ Completa nombre y teléfono', '#F59E0B');
+      showToast('⚠️ Ingrese nombre y teléfono', '#D97706');
       return;
     }
 
     const contacts = getContacts();
-    contacts.push({ id: nextId(contacts), name, phone });
+    const newId = contacts.length ? Math.max(...contacts.map(c => c.id)) + 1 : 1;
+    contacts.push({ id: newId, name, phone, relation });
+
     saveContacts(contacts);
 
-    if (nameIn) nameIn.value   = '';
+    if (nameIn) nameIn.value = '';
     if (phoneIn) phoneIn.value = '';
+    if (relIn) relIn.value = '';
 
-    renderContacts();
-    showToast('✅ Contacto guardado', '#16A34A');
+    showToast('✅ Contacto guardado con éxito', '#16A34A');
   });
 }
 
-// ── HISTORIAL LOGS ────────────────────────────────────────────
+window.deleteContact = function(id) {
+  const contacts = getContacts().filter(c => c.id !== id);
+  saveContacts(contacts);
+  showToast('Contacto eliminado', '#475569');
+};
+
+window.openEditContact = function(id) {
+  const contacts = getContacts();
+  const c = contacts.find(item => item.id === id);
+  if (!c) return;
+
+  $('editContactId').value = c.id;
+  $('editContactName').value = c.name;
+  $('editContactPhone').value = c.phone;
+  $('editContactRelation').value = c.relation || '';
+
+  $('editContactModal').classList.add('open');
+};
+
+function initEditContactModal() {
+  const modal = $('editContactModal');
+  const closeBtn = $('closeEditContactModal');
+  const form = $('editContactForm');
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => modal.classList.remove('open'));
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const id = Number($('editContactId').value);
+      const name = $('editContactName').value.trim();
+      const phone = $('editContactPhone').value.trim();
+      const relation = $('editContactRelation').value.trim();
+
+      const contacts = getContacts();
+      const idx = contacts.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        contacts[idx] = { id, name, phone, relation };
+        saveContacts(contacts);
+        modal.classList.remove('open');
+        showToast('✅ Contacto actualizado', '#16A34A');
+      }
+    });
+  }
+}
+
+function updateHomeContactCount() {
+  const count = getContacts().length;
+  if ($('homeContactCount')) {
+    $('homeContactCount').textContent = `${count} contacto${count !== 1 ? 's' : ''} listo${count !== 1 ? 's' : ''}`;
+  }
+}
+
+// ── PERFIL DE USUARIO (RF-01) ─────────────────────────────────
+function initProfileModal() {
+  const openBtn = $('openProfileBtn');
+  const closeBtn = $('closeProfileModal');
+  const backdrop = $('profileModalBackdrop');
+  const form = $('profileForm');
+
+  if (openBtn) {
+    openBtn.addEventListener('click', () => {
+      const u = state.user || DEFAULT_PROFILE;
+      $('userNameInput').value = u.name || '';
+      $('userPhoneInput').value = u.phone || '';
+      $('userEmailInput').value = u.email || '';
+      $('userAddressInput').value = u.address || '';
+      $('userMedicalInput').value = u.medical || '';
+
+      backdrop.classList.add('open');
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.user = {
+        name: $('userNameInput').value.trim(),
+        phone: $('userPhoneInput').value.trim(),
+        email: $('userEmailInput').value.trim(),
+        address: $('userAddressInput').value.trim(),
+        medical: $('userMedicalInput').value.trim()
+      };
+      saveState();
+      backdrop.classList.remove('open');
+      showToast('✅ Perfil guardado correctamente', '#16A34A');
+    });
+  }
+}
+
+// ── HISTORIAL DE LOGS (RF-05) ─────────────────────────────────
 function renderLogs() {
   const container = $('logsList');
   if (!container) return;
-  container.innerHTML = '';
 
   if (!state.logs || state.logs.length === 0) {
-    container.innerHTML = `<div style="text-align:center; padding:24px; color:#94A3B8;">No hay registros de incidentes.</div>`;
+    container.innerHTML = `
+      <div style="text-align:center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;">
+        No hay alertas o emergencias registradas en el historial.
+      </div>`;
     return;
   }
 
-  state.logs.forEach(log => {
-    const card = document.createElement('div');
-    card.className = 'contact-item';
-    card.innerHTML = `
-      <div class="contact-avatar">${log.icon || '⚠️'}</div>
+  container.innerHTML = state.logs.map(log => `
+    <div class="contact-item" style="align-items:flex-start;">
+      <div class="contact-avatar" style="background:rgba(220,38,38,0.15); color:var(--primary-red-hover);">
+        <span class="material-symbols-rounded">${log.icon || 'warning'}</span>
+      </div>
       <div class="contact-details">
-        <strong>${escapeHtml(log.name)} — ${new Date(log.ts).toLocaleString()}</strong>
-        <span>Informe: ${escapeHtml(log.summary)}</span>
-      </div>`;
-    container.appendChild(card);
-  });
+        <strong>${escHtml(log.name)} — Finalizada</strong>
+        <span style="color:var(--accent-indigo); font-size:10px; margin:2px 0;">Fecha: ${new Date(log.closedTs || log.ts).toLocaleString()}</span>
+        <span style="color:white; margin-top:4px;"><b>Informe:</b> ${escHtml(log.resolution)}</span>
+      </div>
+    </div>
+  `).join('');
 }
 
-// ── MI UBICACIÓN Y COMPARTIR ──────────────────────────────────
-function initMyLocation() {
-  document.querySelectorAll('.action-card').forEach(btn => {
-    const iconEl = btn.querySelector('.material-symbols-rounded');
-    if (iconEl && iconEl.textContent.trim() === 'my_location') {
-      btn.addEventListener('click', () => {
-        if (!navigator.geolocation) {
-          showToast('⚠️ Tu dispositivo no soporta geolocalización', '#F59E0B');
-          return;
-        }
-        showToast('📡 Obteniendo ubicación...', '#4F46E5', 6000);
-        navigator.geolocation.getCurrentPosition(
-          pos => {
-            const { latitude: lat, longitude: lng } = pos.coords;
-            showToast(`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`, '#16A34A', 5000);
-          },
-          err => {
-            const msgs = {
-              1: 'Permiso de ubicación denegado.',
-              2: 'Ubicación no disponible.',
-              3: 'Tiempo de espera agotado.',
-            };
-            showToast(`⚠️ ${msgs[err.code] || 'Error desconocido'}`, '#F59E0B');
-          },
-          { timeout: 8000 }
-        );
-      });
-    }
-  });
-}
-
-function initShareLocation() {
-  const shareBtn = document.querySelector('.btn-blue');
-  if (!shareBtn) return;
-
-  shareBtn.addEventListener('click', () => {
-    const fakeLink = `https://sos911.app/alert?id=${Date.now()}&loc=-34.6037,-58.3816`;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(fakeLink)
-        .then(() => showToast('🔗 Enlace copiado al portapapeles', '#4F46E5'))
-        .catch(() => showToast('🔗 Ubicación compartida: ' + fakeLink, '#4F46E5', 5000));
-    } else {
-      showToast('🔗 Ubicación compartida (simulada)', '#4F46E5');
-    }
-  });
-}
-
-// ── CANCELAR ALERTA SIMPLE ───────────────────────────────────
-function initCancelAlert() {
-  const cancelBtn = document.querySelector('.btn-red');
-  if (!cancelBtn) return;
-
-  cancelBtn.addEventListener('click', () => {
-    const confirmed = window.confirm('¿Estás seguro de que deseas cancelar la alerta de emergencia?');
-    if (confirmed) {
-      showToast('✅ Alerta cancelada. Regresando a inicio.', '#16A34A');
-      setTimeout(() => navigateTo('view-home'), 1200);
-    }
-  });
-}
-
-// ── CONFIGURACIÓN ─────────────────────────────────────────────
-function initSettings() {
-  document.querySelectorAll('.action-card').forEach(btn => {
-    const iconEl = btn.querySelector('.material-symbols-rounded');
-    if (iconEl && iconEl.textContent.trim() === 'settings') {
-      btn.addEventListener('click', () => {
-        showToast('⚙️ Configuración — Próximamente', '#64748B');
-      });
-    }
-  });
-}
-
-function resumeIfActive() {
-  if (state.status === 'EMERGENCY' && state.incident) {
-    const inc = state.incident;
-    activateEmergency(inc.type, inc.name, inc.icon, inc.id);
+// ── LLAMADA DIRECTA AL 911 ────────────────────────────────────
+function initDirectCall() {
+  const callBtn = $('directCallBtn');
+  if (callBtn) {
+    callBtn.addEventListener('click', () => {
+      showToast('📞 Iniciando llamada de emergencia al 911...', '#DC2626', 4000);
+      window.location.href = 'tel:911';
+    });
   }
 }
 
-// ── INIT ──────────────────────────────────────────────────────
+// ── INICIALIZACIÓN PRINCIPAL ─────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadState();
   initNav();
-  initPanicButton();
   initPanicButtons();
-  initCancelBtn();
-  initMapNodes();
-  renderContacts();
-  renderPlan('general');
-  initAddContact();
-  initMyLocation();
+  initResolutionModal();
+  initContactForm();
+  initEditContactModal();
+  initProfileModal();
   initShareLocation();
-  initCancelAlert();
-  initSettings();
-  resumeIfActive();
+  initDirectCall();
+
+  renderContacts();
+  renderLogs();
+  updateHomeContactCount();
+
+  // Si había una emergencia activa guardada
+  if (state.status === 'EMERGENCY' && state.incident) {
+    activateEmergency(state.incident.type, state.incident.name, state.incident.icon);
+  }
 });
