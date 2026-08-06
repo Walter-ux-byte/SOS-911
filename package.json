@@ -2,6 +2,7 @@
   "name": "SOS-911",
   "type": "module",
   "scripts": {
+    "start": "npx live-server --host=0.0.0.0 --port=3000",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prettier:check": "prettier --ignore-unknown --check --config prettier.config.ts .",
