@@ -11,6 +11,170 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
 <body>
+  <!-- ══ PANTALLA DE AUTENTICACIÓN (OVERLAY FULL-SCREEN) ══ -->
+  <div id="authScreen" class="auth-overlay hidden">
+    <div class="auth-inner">
+      <div class="auth-logo">
+        <div class="auth-logo-badge">
+          <span class="material-symbols-rounded">health_and_safety</span>
+        </div>
+        <h1 class="auth-title">SOS<span>911</span></h1>
+        <p class="auth-subtitle">Sistema de Emergencias Urbanas</p>
+      </div>
+
+      <div class="auth-card">
+        <!-- TABS -->
+        <div class="auth-tab-switcher">
+          <button class="auth-tab active" id="tabLoginBtn" data-tab="loginForm">Iniciar Sesión</button>
+          <button class="auth-tab" id="tabRegisterBtn" data-tab="registerForm">Crear Cuenta</button>
+        </div>
+
+        <!-- FORMULARIO LOGIN -->
+        <form id="loginForm" class="auth-form" onsubmit="return false;">
+          <div class="form-group">
+            <label for="loginEmail">
+              <span class="material-symbols-rounded form-icon">mail</span> Correo Electrónico
+            </label>
+            <input type="email" id="loginEmail" placeholder="usuario@correo.com" autocomplete="email" required>
+          </div>
+          <div class="form-group">
+            <label for="loginPassword">
+              <span class="material-symbols-rounded form-icon">lock</span> Contraseña
+            </label>
+            <div class="input-icon-group">
+              <input type="password" id="loginPassword" placeholder="Tu contraseña" autocomplete="current-password" required>
+              <button type="button" class="toggle-password" id="toggleLoginPwd" tabindex="-1">
+                <span class="material-symbols-rounded">visibility</span>
+              </button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="loginSubmitBtn">
+            <span class="material-symbols-rounded">login</span> Ingresar al Sistema
+          </button>
+        </form>
+
+        <!-- FORMULARIO REGISTRO -->
+        <form id="registerForm" class="auth-form hidden" onsubmit="return false;">
+          <div class="form-group">
+            <label for="regName">
+              <span class="material-symbols-rounded form-icon">person</span> Nombre Completo
+            </label>
+            <input type="text" id="regName" placeholder="Ej. María González" required>
+          </div>
+          <div class="form-group">
+            <label for="regEmail">
+              <span class="material-symbols-rounded form-icon">mail</span> Correo Electrónico
+            </label>
+            <input type="email" id="regEmail" placeholder="usuario@correo.com" autocomplete="email" required>
+          </div>
+          <div class="form-group">
+            <label for="regPassword">
+              <span class="material-symbols-rounded form-icon">lock</span> Contraseña
+            </label>
+            <div class="input-icon-group">
+              <input type="password" id="regPassword" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+              <button type="button" class="toggle-password" id="toggleRegPwd" tabindex="-1">
+                <span class="material-symbols-rounded">visibility</span>
+              </button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="registerSubmitBtn">
+            <span class="material-symbols-rounded">person_add</span> Crear Cuenta
+          </button>
+        </form>
+      </div>
+
+      <p class="auth-legal">Tus datos se almacenan localmente en tu dispositivo.<br>No se transmite información a servidores externos.</p>
+    </div>
+  </div>
+
+  <!-- ══ PANTALLA ONBOARDING — FICHA DE EMERGENCIA ══ -->
+  <div id="onboardingScreen" class="auth-overlay hidden">
+    <div class="auth-inner">
+      <div class="auth-logo">
+        <div class="auth-logo-badge onboarding-badge">
+          <span class="material-symbols-rounded">medical_information</span>
+        </div>
+        <h1 class="auth-title">Ficha de <span>Emergencia</span></h1>
+        <p class="auth-subtitle">Esta información se envía automáticamente a los servicios de auxilio al activar una alerta.</p>
+      </div>
+
+      <div class="auth-card onboarding-card">
+        <form id="onboardingForm" onsubmit="return false;">
+          <!-- Fila: Edad + Tipo de Sangre -->
+          <div class="form-row">
+            <div class="form-group">
+              <label for="obAge">
+                <span class="material-symbols-rounded form-icon">cake</span> Edad
+              </label>
+              <div class="number-input-wrapper">
+                <button type="button" class="btn-num-control" id="btn-dec-obAge">&minus;</button>
+                <input type="number" id="obAge" placeholder="Ej. 28" min="1" max="120">
+                <button type="button" class="btn-num-control" id="btn-inc-obAge">&plus;</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="obBloodType">
+                <span class="material-symbols-rounded form-icon">bloodtype</span> Tipo de Sangre
+              </label>
+              <div class="select-wrapper">
+                <select id="obBloodType">
+                  <option value="">Seleccionar...</option>
+                  <option value="A+">A+</option>
+                  <option value="A-">A-</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B-</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB-</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O-</option>
+                  <option value="Desconocido">Desconocido</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="obCondition">
+              <span class="material-symbols-rounded form-icon">monitor_heart</span> Enfermedad o Condición Médica
+            </label>
+            <input type="text" id="obCondition" placeholder="Ej. Diabetes tipo 2, Hipertensión (opcional)">
+          </div>
+
+          <div class="form-group">
+            <label for="obAllergies">
+              <span class="material-symbols-rounded form-icon">warning</span> Alergias Severas a Medicamentos
+            </label>
+            <input type="text" id="obAllergies" placeholder="Ej. Penicilina, Ibuprofeno (opcional)">
+          </div>
+
+          <div class="ob-section-label">
+            <span class="material-symbols-rounded">contact_phone</span>
+            Contacto de Emergencia Principal
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="obEcName">Nombre</label>
+              <input type="text" id="obEcName" placeholder="Ej. Ana García">
+            </div>
+            <div class="form-group">
+              <label for="obEcPhone">Teléfono</label>
+              <input type="tel" id="obEcPhone" placeholder="+593 99 000 0000">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="onboardingSubmitBtn">
+            <span class="material-symbols-rounded">shield_person</span> Guardar y Acceder al Sistema
+          </button>
+          <button type="button" class="btn btn-secondary full-width" id="onboardingSkipBtn" style="margin-top:8px;">
+            Completar después
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div class="app-shell">
     
     <!-- BANNER DE EMERGENCIA GLOBAL (CUANDO LA ALERTA ESTÁ ACTIVA) -->
@@ -23,6 +187,33 @@
         </div>
       </div>
       <button class="btn-banner-action" id="bannerMapBtn">Ver Mapa</button>
+    </div>
+
+    <!-- TARJETA MÉDICA EN EMERGENCIA (VISIBLE EN HOME DURANTE ALERTA) -->
+    <div id="medicalBannerCard" class="medical-banner-card hidden">
+      <div class="mbc-header">
+        <span class="material-symbols-rounded mbc-icon">medical_information</span>
+        <strong>Ficha Médica Transmitida</strong>
+        <button class="mbc-close" id="closeMedicalBanner">&times;</button>
+      </div>
+      <div class="mbc-body">
+        <div class="mbc-row">
+          <span class="mbc-label">🩸 Sangre</span>
+          <span class="mbc-value" id="mbcBlood">—</span>
+        </div>
+        <div class="mbc-row">
+          <span class="mbc-label">⚕️ Condición</span>
+          <span class="mbc-value" id="mbcCondition">—</span>
+        </div>
+        <div class="mbc-row">
+          <span class="mbc-label">⚠️ Alergias</span>
+          <span class="mbc-value" id="mbcAllergies">—</span>
+        </div>
+        <div class="mbc-row">
+          <span class="mbc-label">📞 Contacto</span>
+          <span class="mbc-value" id="mbcContact">—</span>
+        </div>
+      </div>
     </div>
 
     <!-- HEADER SUPERIOR -->
@@ -289,36 +480,178 @@
 
   <!-- MODAL 1: REGISTRO Y PERFIL DE USUARIO (RF-01) -->
   <div class="modal-backdrop" id="profileModalBackdrop">
-    <div class="modal-card">
+    <div class="modal-card modal-card-tall">
       <div class="modal-header">
-        <h3><span class="material-symbols-rounded">badge</span> Perfil de Usuario SOS-911</h3>
+        <h3><span class="material-symbols-rounded">badge</span> Perfil y Ficha de Emergencia</h3>
         <button class="modal-close-btn" id="closeProfileModal">&times;</button>
       </div>
       <div class="modal-body">
         <form id="profileForm" onsubmit="return false;">
-          <div class="form-group">
-            <label for="userNameInput">Nombre del Usuario</label>
-            <input type="text" id="userNameInput" placeholder="Ej. Dr. Carlos Mendoza">
+
+          <!-- TABS SUPERIORES -->
+          <div class="profile-tab-switcher">
+            <button type="button" class="profile-tab active" data-ptab="tabPersonal">Datos Personales</button>
+            <button type="button" class="profile-tab" data-ptab="tabMedical">Ficha Médica</button>
+            <button type="button" class="profile-tab" data-ptab="tabSettings">Contacto y Ajustes</button>
           </div>
-          <div class="form-group">
-            <label for="userPhoneInput">Teléfono Móvil Principal</label>
-            <input type="tel" id="userPhoneInput" placeholder="+593 98 765 4321">
+
+          <!-- PESTAÑA 1: DATOS PERSONALES -->
+          <div id="tabPersonal" class="profile-tab-content">
+            <div class="profile-locked-notice">
+              <span class="material-symbols-rounded">lock</span>
+              Datos de registro. Edita desde Configuración de Cuenta.
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="userNameInput">
+                  <span class="material-symbols-rounded field-lock-icon">lock</span> Nombre
+                </label>
+                <input type="text" id="userNameInput" placeholder="Ej. Dr. Carlos Mendoza" readonly tabindex="-1">
+              </div>
+              <div class="form-group">
+                <label for="userPhoneInput">
+                  <span class="material-symbols-rounded field-lock-icon">lock</span> Teléfono
+                </label>
+                <input type="tel" id="userPhoneInput" placeholder="+593 98 765 4321" readonly tabindex="-1">
+              </div>
+              <div class="form-group col-span-2">
+                <label for="userEmailInput">
+                  <span class="material-symbols-rounded field-lock-icon">lock</span> Correo Electrónico
+                </label>
+                <input type="email" id="userEmailInput" placeholder="usuario@sos911.app" readonly tabindex="-1">
+              </div>
+              <div class="form-group col-span-2">
+                <label for="userAddressInput">
+                  <span class="material-symbols-rounded field-lock-icon">lock</span> Dirección Principal
+                </label>
+                <input type="text" id="userAddressInput" placeholder="Ej. Av. Amazonas N24-15 y Colón" readonly tabindex="-1">
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="userEmailInput">Correo Electrónico</label>
-            <input type="email" id="userEmailInput" placeholder="usuario@sos911.app">
+
+          <!-- PESTAÑA 2: FICHA MÉDICA -->
+          <div id="tabMedical" class="profile-tab-content hidden">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="profileAge">Edad <span class="field-required">*</span></label>
+                <div class="number-input-wrapper">
+                  <button type="button" class="btn-num-control" id="btn-dec-profileAge">&minus;</button>
+                  <input type="number" id="profileAge" placeholder="Ej. 28" min="1" max="120">
+                  <button type="button" class="btn-num-control" id="btn-inc-profileAge">&plus;</button>
+                </div>
+                <span class="form-error-msg" id="err-profileAge"></span>
+              </div>
+              
+              <div class="form-group">
+                <label for="profileBloodType">Tipo de Sangre <span class="field-required">*</span></label>
+                <div class="select-wrapper">
+                  <select id="profileBloodType">
+                    <option value="">Seleccionar...</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                    <option value="Desconocido">Desconocido</option>
+                  </select>
+                </div>
+                <span class="form-error-msg" id="err-profileBloodType"></span>
+              </div>
+
+              <div class="form-group">
+                <label for="profileInsurance">
+                  <span class="material-symbols-rounded form-icon">health_and_safety</span> Seguro Médico
+                </label>
+                <div class="select-wrapper">
+                  <select id="profileInsurance">
+                    <option value="">Seleccionar...</option>
+                    <option value="Ninguno">Ninguno</option>
+                    <option value="IESS">IESS</option>
+                    <option value="Seguro Privado">Seguro Privado</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="profileMedication">
+                  <span class="material-symbols-rounded form-icon">medication</span> Medicación
+                </label>
+                <input type="text" id="profileMedication" placeholder="Ej. Insulina, Losartán">
+              </div>
+
+              <div class="form-group col-span-2">
+                <label for="profileCondition">Enfermedad / Condición Médica</label>
+                <input type="text" id="profileCondition" placeholder="Ej. Diabetes tipo 2, Hipertensión">
+              </div>
+
+              <div class="form-group col-span-2">
+                <label for="profileAllergies">Alergias Severas a Medicamentos</label>
+                <input type="text" id="profileAllergies" placeholder="Ej. Penicilina, Ibuprofeno">
+              </div>
+
+              <div class="form-group col-span-2">
+                <label for="profileNotes">
+                  <span class="material-symbols-rounded form-icon">note_alt</span> Observaciones / Notas
+                </label>
+                <textarea id="profileNotes" rows="2" placeholder="Ej. Lleva marcapasos. No aplicar adrenalina."></textarea>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="userAddressInput">Dirección Principal / Comercio</label>
-            <input type="text" id="userAddressInput" placeholder="Ej. Av. Amazonas N24-15 y Colón">
+
+          <!-- PESTAÑA 3: CONTACTO Y AJUSTES -->
+          <div id="tabSettings" class="profile-tab-content hidden">
+            <div class="profile-section-label">Contacto de Emergencia</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="profileEcName">Nombre</label>
+                <input type="text" id="profileEcName" placeholder="Ej. Ana García">
+              </div>
+              <div class="form-group">
+                <label for="profileEcPhone">Teléfono <span class="field-required">*</span></label>
+                <input type="tel" id="profileEcPhone" placeholder="+593 99 000 0000">
+                <span class="form-error-msg" id="err-profileEcPhone"></span>
+              </div>
+            </div>
+
+            <div class="profile-section-label" style="margin-top:16px;">
+              <span class="material-symbols-rounded form-icon">settings_accessibility</span> Ajustes
+            </div>
+            
+            <div class="form-grid">
+              <div class="form-group col-span-2">
+                <label>Tema de Interfaz</label>
+                <div class="settings-row" style="padding-top: 6px;">
+                  <span class="material-symbols-rounded form-icon">dark_mode</span>
+                  <span class="settings-label">Oscuro</span>
+                  <label class="theme-switch" for="themeToggle">
+                    <input type="checkbox" id="themeToggle">
+                    <span class="theme-switch-slider"></span>
+                  </label>
+                  <span class="settings-label">Claro</span>
+                  <span class="material-symbols-rounded form-icon">light_mode</span>
+                </div>
+              </div>
+
+              <div class="form-group col-span-2">
+                <label>Tamaño de Letra</label>
+                <div class="settings-row" style="padding-top: 6px;">
+                  <button type="button" class="btn-font-control" id="btnFontDec">A&minus;</button>
+                  <span class="font-size-indicator" id="fontSizeIndicator">100%</span>
+                  <button type="button" class="btn-font-control" id="btnFontInc">A+</button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="userMedicalInput">Ficha Médica / Alergias / Tipo de Sangre</label>
-            <textarea id="userMedicalInput" rows="2" placeholder="O+ / Alérgico a Penicilina"></textarea>
-          </div>
-          <button type="submit" class="btn btn-blue full-width" id="saveProfileBtn">
-            <span class="material-symbols-rounded">check_circle</span> Actualizar Perfil
+
+          <button type="submit" class="btn btn-blue full-width" id="saveProfileBtn" style="margin-top: 16px;">
+            <span class="material-symbols-rounded">check_circle</span> Guardar Ficha
           </button>
+
         </form>
       </div>
     </div>

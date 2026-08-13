@@ -2,17 +2,22 @@
 //  SOS911 — app.js  |  Vanilla JS + Leaflet.js Mapa Dinámico
 // ============================================================
 
-const DEFAULT_CONTACTS = [
-  { id: 1, name: 'Ana García (Mamá)', phone: '+593 99 123 4567', relation: 'Familiar' },
-  { id: 2, name: 'Carlos Ruiz (Hermano)', phone: '+593 98 765 4321', relation: 'Familiar' },
-];
+const DEFAULT_CONTACTS = [];
 
 const DEFAULT_PROFILE = {
   name: 'Usuario SOS911',
   phone: '+593 99 000 1122',
   email: 'contacto@sos911.app',
   address: 'Centro Urbano Principal',
-  medical: 'Sin alergias registradas'
+  age: '',
+  bloodType: '',
+  condition: '',
+  allergies: '',
+  medication: '',
+  insurance: '',
+  notes: '',
+  emergencyContactName: '',
+  emergencyContactPhone: ''
 };
 
 const DEFAULT_STATE = {
@@ -87,6 +92,9 @@ function loadState() {
   try {
     const stored = localStorage.getItem('sos911_app_state');
     state = stored ? JSON.parse(stored) : JSON.parse(JSON.stringify(DEFAULT_STATE));
+    // Asegurar que user tenga todos los campos nuevos
+    if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+    state.user = Object.assign({}, DEFAULT_PROFILE, state.user);
   } catch (_) {
     state = JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
@@ -372,6 +380,9 @@ function activateEmergency(type, name, icon) {
   if ($('cancelEmergencyBtn')) $('cancelEmergencyBtn').classList.remove('hidden');
   if ($('dispatchSection')) $('dispatchSection').style.display = 'block';
 
+  // Mostrar tarjeta médica en Home
+  showMedicalBannerCard();
+
   // Cambiar vista al mapa
   navigateTo('view-map');
   showToast(`🚨 ¡ALERTA DE ${name.toUpperCase()} TRANSMITIDA!`, '#DC2626', 4000);
@@ -386,6 +397,19 @@ function activateEmergency(type, name, icon) {
   resetTimeline();
   simulateContactsNotified();
   addChatMsg('system', `🚨 Alerta de ${name} generada en Lat: ${userCoords.lat.toFixed(4)}, Lng: ${userCoords.lng.toFixed(4)}.`);
+
+  // Incluir ficha médica en el canal de despacho
+  const u = state.user || {};
+  if (u.bloodType || u.condition || u.allergies || u.emergencyContactName) {
+    const medInfo = [
+      u.bloodType    ? `🩸 Sangre: ${u.bloodType}`           : null,
+      u.age          ? `👤 Edad: ${u.age} años`               : null,
+      u.condition    ? `⚕️ Condición: ${u.condition}`         : null,
+      u.allergies    ? `⚠️ Alergias: ${u.allergies}`          : null,
+      u.emergencyContactName ? `📞 Contacto: ${u.emergencyContactName} ${u.emergencyContactPhone}` : null
+    ].filter(Boolean).join(' | ');
+    addChatMsg('system', `📋 Ficha Médica del Ciudadano → ${medInfo}`);
+  }
 }
 
 function emergencyTick() {
@@ -559,6 +583,8 @@ function submitResolution() {
   if ($('statusDot')) $('statusDot').className = 'status-dot-mini green';
   if ($('cancelEmergencyBtn')) $('cancelEmergencyBtn').classList.add('hidden');
   if ($('dispatchSection')) $('dispatchSection').style.display = 'none';
+  // Ocultar tarjeta médica
+  if ($('medicalBannerCard')) $('medicalBannerCard').classList.add('hidden');
 
   if ($('resolutionBackdrop')) $('resolutionBackdrop').classList.remove('open');
   if (textInput) textInput.value = '';
@@ -689,7 +715,8 @@ function updateHomeContactCount() {
   }
 }
 
-// ── PERFIL DE USUARIO (RF-01) ─────────────────────────────────
+// ── PERFIL DE USUARIO (RF-01) — EXTENDIDO ─────────────────────
+// ── PERFIL DE USUARIO (RF-01) — EXTENDIDO ─────────────────────
 function initProfileModal() {
   const openBtn = $('openProfileBtn');
   const closeBtn = $('closeProfileModal');
@@ -699,11 +726,24 @@ function initProfileModal() {
   if (openBtn) {
     openBtn.addEventListener('click', () => {
       const u = state.user || DEFAULT_PROFILE;
-      $('userNameInput').value = u.name || '';
-      $('userPhoneInput').value = u.phone || '';
-      $('userEmailInput').value = u.email || '';
-      $('userAddressInput').value = u.address || '';
-      $('userMedicalInput').value = u.medical || '';
+      if ($('userNameInput'))    $('userNameInput').value    = u.name    || '';
+      if ($('userPhoneInput'))   $('userPhoneInput').value   = u.phone   || '';
+      if ($('userEmailInput'))   $('userEmailInput').value   = u.email   || '';
+      if ($('userAddressInput')) $('userAddressInput').value = u.address  || '';
+      
+      if ($('profileAge'))        $('profileAge').value        = u.age       || '';
+      if ($('profileBloodType'))  $('profileBloodType').value  = u.bloodType || '';
+      if ($('profileCondition'))  $('profileCondition').value  = u.condition || '';
+      if ($('profileAllergies'))  $('profileAllergies').value  = u.allergies || '';
+      if ($('profileMedication')) $('profileMedication').value = u.medication || '';
+      if ($('profileInsurance'))  $('profileInsurance').value  = u.insurance || '';
+      if ($('profileNotes'))      $('profileNotes').value      = u.notes || '';
+      
+      if ($('profileEcName'))     $('profileEcName').value     = u.emergencyContactName  || '';
+      if ($('profileEcPhone'))    $('profileEcPhone').value    = u.emergencyContactPhone || '';
+
+      // Clear errors
+      $$('.form-error-msg').forEach(el => el.textContent = '');
 
       backdrop.classList.add('open');
     });
@@ -713,19 +753,88 @@ function initProfileModal() {
     closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
   }
 
+  // Profile Tabs Logic
+  const pTabs = $$('.profile-tab');
+  const pContents = $$('.profile-tab-content');
+  if (pTabs.length > 0) {
+    pTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Deactivate all
+        pTabs.forEach(t => t.classList.remove('active'));
+        pContents.forEach(c => c.classList.add('hidden'));
+        // Activate clicked
+        tab.classList.add('active');
+        const targetId = tab.getAttribute('data-ptab');
+        const targetContent = $(targetId);
+        if (targetContent) {
+          targetContent.classList.remove('hidden');
+        }
+      });
+    });
+  }
+
+
   if (form) {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      state.user = {
-        name: $('userNameInput').value.trim(),
-        phone: $('userPhoneInput').value.trim(),
-        email: $('userEmailInput').value.trim(),
-        address: $('userAddressInput').value.trim(),
-        medical: $('userMedicalInput').value.trim()
-      };
+      
+      // Limpiar errores previos
+      $$('.form-error-msg').forEach(el => el.textContent = '');
+      let hasError = false;
+
+      // Obtener valores
+      const age = $('profileAge') ? $('profileAge').value.trim() : '';
+      const bloodType = $('profileBloodType') ? $('profileBloodType').value : '';
+      const ecPhone = $('profileEcPhone') ? $('profileEcPhone').value.trim() : '';
+
+      // Validar Edad
+      if (!age) {
+        if ($('err-profileAge')) $('err-profileAge').textContent = 'La edad es obligatoria.';
+        hasError = true;
+      } else {
+        const ageNum = parseInt(age, 10);
+        if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
+          if ($('err-profileAge')) $('err-profileAge').textContent = 'Ingresa una edad válida (1-120).';
+          hasError = true;
+        }
+      }
+
+      // Validar Tipo de Sangre
+      if (!bloodType) {
+        if ($('err-profileBloodType')) $('err-profileBloodType').textContent = 'Selecciona un tipo de sangre.';
+        hasError = true;
+      }
+
+      // Validar Teléfono de Contacto (solo números, +, espacios o -, min 9 dígitos numéricos)
+      if (!ecPhone) {
+        if ($('err-profileEcPhone')) $('err-profileEcPhone').textContent = 'El teléfono es obligatorio.';
+        hasError = true;
+      } else {
+        const digits = ecPhone.replace(/\D/g, '');
+        if (digits.length < 9) {
+          if ($('err-profileEcPhone')) $('err-profileEcPhone').textContent = 'Mínimo 9 dígitos requeridos.';
+          hasError = true;
+        }
+      }
+
+      if (hasError) return; // Detener si hay errores
+
+      // Solo actualizar campos médicos y de contacto
+      state.user = Object.assign(state.user || {}, {
+        age:          age,
+        bloodType:    bloodType,
+        condition:    ($('profileCondition') ? $('profileCondition').value.trim() : state.user?.condition    || ''),
+        allergies:    ($('profileAllergies') ? $('profileAllergies').value.trim() : state.user?.allergies    || ''),
+        medication:   ($('profileMedication') ? $('profileMedication').value.trim() : state.user?.medication || ''),
+        insurance:    ($('profileInsurance') ? $('profileInsurance').value : state.user?.insurance || ''),
+        notes:        ($('profileNotes') ? $('profileNotes').value.trim() : state.user?.notes || ''),
+        emergencyContactName:  ($('profileEcName')  ? $('profileEcName').value.trim()  : state.user?.emergencyContactName  || ''),
+        emergencyContactPhone: ecPhone
+      });
+      
       saveState();
       backdrop.classList.remove('open');
-      showToast('✅ Perfil guardado correctamente', '#16A34A');
+      showToast('✅ Cambios en la Ficha Médica guardados', '#16A34A');
     });
   }
 }
@@ -768,9 +877,389 @@ function initDirectCall() {
   }
 }
 
+// ── TARJETA MÉDICA EN HOME ────────────────────────────────────
+function showMedicalBannerCard() {
+  const card = $('medicalBannerCard');
+  if (!card) return;
+
+  const u = state.user || {};
+  if ($('mbcBlood'))    $('mbcBlood').textContent    = u.bloodType || '—';
+  if ($('mbcCondition')) $('mbcCondition').textContent = u.condition  || 'Ninguna registrada';
+  if ($('mbcAllergies')) $('mbcAllergies').textContent = u.allergies  || 'Ninguna registrada';
+  if ($('mbcContact'))   $('mbcContact').textContent   =
+    u.emergencyContactName
+      ? `${u.emergencyContactName} ${u.emergencyContactPhone || ''}`.trim()
+      : '—';
+
+  card.classList.remove('hidden');
+}
+
+function initMedicalBannerClose() {
+  const closeBtn = $('closeMedicalBanner');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      const card = $('medicalBannerCard');
+      if (card) card.classList.add('hidden');
+    });
+  }
+}
+
+// ── AUTENTICACIÓN (PANTALLA LOGIN / REGISTRO) ─────────────────
+/**
+ * Hash simple (no criptográfico) para almacenamiento local.
+ * Solo para verificación de identidad en localStorage.
+ */
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'H' + Math.abs(hash).toString(36);
+}
+
+function getAuthUser() {
+  try {
+    const raw = localStorage.getItem('sos911_auth_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+function saveAuthUser(data) {
+  localStorage.setItem('sos911_auth_user', JSON.stringify(data));
+}
+
+function dismissAuth() {
+  const authScreen = $('authScreen');
+  if (authScreen) authScreen.classList.add('hidden');
+}
+
+function showOnboarding() {
+  const screen = $('onboardingScreen');
+  if (screen) {
+    screen.classList.remove('hidden');
+    // Pre-rellenar si ya tiene datos
+    const u = state.user || {};
+    if ($('obAge'))        $('obAge').value        = u.age       || '';
+    if ($('obBloodType'))  $('obBloodType').value  = u.bloodType || '';
+    if ($('obCondition'))  $('obCondition').value  = u.condition || '';
+    if ($('obAllergies'))  $('obAllergies').value  = u.allergies || '';
+    if ($('obEcName'))     $('obEcName').value     = u.emergencyContactName  || '';
+    if ($('obEcPhone'))    $('obEcPhone').value    = u.emergencyContactPhone || '';
+  }
+}
+
+function initAuthScreen() {
+  const authScreen      = $('authScreen');
+  const loginForm       = $('loginForm');
+  const registerForm    = $('registerForm');
+  const tabLoginBtn     = $('tabLoginBtn');
+  const tabRegisterBtn  = $('tabRegisterBtn');
+  const toggleLoginPwd  = $('toggleLoginPwd');
+  const toggleRegPwd    = $('toggleRegPwd');
+
+  // Verificar si ya hay sesión activa
+  const authUser = getAuthUser();
+  if (authUser && authUser.registered) {
+    dismissAuth();
+    return;
+  }
+
+  // Mostrar pantalla de auth
+  if (authScreen) authScreen.classList.remove('hidden');
+
+  // Tabs switch
+  function switchTab(activeTab, activeForm, inactiveTab, inactiveForm) {
+    activeTab.classList.add('active');
+    inactiveTab.classList.remove('active');
+    activeForm.classList.remove('hidden');
+    inactiveForm.classList.add('hidden');
+  }
+
+  if (tabLoginBtn && tabRegisterBtn) {
+    tabLoginBtn.addEventListener('click', () =>
+      switchTab(tabLoginBtn, loginForm, tabRegisterBtn, registerForm));
+    tabRegisterBtn.addEventListener('click', () =>
+      switchTab(tabRegisterBtn, registerForm, tabLoginBtn, loginForm));
+  }
+
+  // Toggle contraseña — Login
+  if (toggleLoginPwd) {
+    toggleLoginPwd.addEventListener('click', () => {
+      const inp = $('loginPassword');
+      const icon = toggleLoginPwd.querySelector('span');
+      if (inp.type === 'password') {
+        inp.type = 'text';
+        icon.textContent = 'visibility_off';
+      } else {
+        inp.type = 'password';
+        icon.textContent = 'visibility';
+      }
+    });
+  }
+
+  // Toggle contraseña — Registro
+  if (toggleRegPwd) {
+    toggleRegPwd.addEventListener('click', () => {
+      const inp = $('regPassword');
+      const icon = toggleRegPwd.querySelector('span');
+      if (inp.type === 'password') {
+        inp.type = 'text';
+        icon.textContent = 'visibility_off';
+      } else {
+        inp.type = 'password';
+        icon.textContent = 'visibility';
+      }
+    });
+  }
+
+  // SUBMIT LOGIN
+  if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email    = $('loginEmail')?.value.trim().toLowerCase();
+      const password = $('loginPassword')?.value;
+
+      if (!email || !password) {
+        showToast('⚠️ Ingresa tu correo y contraseña', '#D97706');
+        return;
+      }
+
+      const storedUser = getAuthUser();
+
+      if (!storedUser || !storedUser.registered) {
+        showToast('❌ No existe cuenta. Por favor regístrate primero.', '#DC2626');
+        return;
+      }
+
+      if (storedUser.email !== email) {
+        showToast('❌ Correo incorrecto.', '#DC2626');
+        return;
+      }
+
+      if (storedUser.passwordHash !== simpleHash(password)) {
+        showToast('❌ Contraseña incorrecta.', '#DC2626');
+        return;
+      }
+
+      showToast(`✅ ¡Bienvenido de nuevo, ${storedUser.name || 'Usuario'}!`, '#16A34A');
+      dismissAuth();
+    });
+  }
+
+  // SUBMIT REGISTRO
+  if (registerForm) {
+    registerForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name     = $('regName')?.value.trim();
+      const email    = $('regEmail')?.value.trim().toLowerCase();
+      const password = $('regPassword')?.value;
+
+      if (!name) {
+        showToast('⚠️ Ingresa tu nombre', '#D97706'); return;
+      }
+      
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        showToast('⚠️ Ingresa un formato de correo válido', '#D97706'); return;
+      }
+      if (email.includes('hotmil.com') || email.includes('gmil.com')) {
+        showToast('⚠️ Parece haber un error tipográfico en el dominio de tu correo', '#D97706'); return;
+      }
+      
+      if (!password || password.length < 6) {
+        showToast('⚠️ La contraseña debe tener al menos 6 caracteres', '#D97706'); return;
+      }
+
+      saveAuthUser({ name, email, passwordHash: simpleHash(password), registered: true });
+
+      // Actualizar nombre en el perfil del estado
+      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+      state.user.name  = name;
+      state.user.email = email;
+      saveState();
+
+      showToast(`🎉 Cuenta creada. ¡Bienvenido, ${name}!`, '#16A34A', 3000);
+      dismissAuth();
+
+      // Mostrar Onboarding solo si aún no se completó
+      const onboardingDone = localStorage.getItem('sos911_onboarding_done');
+      if (!onboardingDone) {
+        setTimeout(() => showOnboarding(), 400);
+      }
+    });
+  }
+}
+
+// ── ONBOARDING — FICHA DE EMERGENCIA ─────────────────────────
+function initOnboardingScreen() {
+  const form     = $('onboardingForm');
+  const skipBtn  = $('onboardingSkipBtn');
+  const screen   = $('onboardingScreen');
+
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      localStorage.setItem('sos911_onboarding_done', '1');
+      if (screen) screen.classList.add('hidden');
+      showToast('📋 Puedes completar tu ficha médica desde el ícono de perfil', '#2563EB', 4000);
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      const age       = $('obAge')?.value.trim();
+      const bloodType = $('obBloodType')?.value;
+      const condition = $('obCondition')?.value.trim();
+      const allergies = $('obAllergies')?.value.trim();
+      const ecName    = $('obEcName')?.value.trim();
+      const ecPhone   = $('obEcPhone')?.value.trim();
+
+      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+
+      state.user.age                   = age;
+      state.user.bloodType             = bloodType;
+      state.user.condition             = condition;
+      state.user.allergies             = allergies;
+      state.user.emergencyContactName  = ecName;
+      state.user.emergencyContactPhone = ecPhone;
+
+      saveState();
+      localStorage.setItem('sos911_onboarding_done', '1');
+
+      if (screen) screen.classList.add('hidden');
+      showToast('✅ Ficha de emergencia guardada correctamente', '#16A34A');
+    });
+  }
+}
+
+// ── CONTROLES NUMÉRICOS PERSONALIZADOS ────────────────────────
+function initNumberInputControls() {
+  const setupControls = (inputId, decBtnId, incBtnId) => {
+    const input = $(inputId);
+    const decBtn = $(decBtnId);
+    const incBtn = $(incBtnId);
+    if (!input || !decBtn || !incBtn) return;
+
+    const getMin = () => parseInt(input.min || 1, 10);
+    const getMax = () => parseInt(input.max || 120, 10);
+
+    decBtn.addEventListener('click', () => {
+      let val = parseInt(input.value, 10);
+      if (isNaN(val)) val = getMin();
+      else val--;
+      if (val < getMin()) val = getMin();
+      input.value = val;
+    });
+
+    incBtn.addEventListener('click', () => {
+      let val = parseInt(input.value, 10);
+      if (isNaN(val)) val = getMin();
+      else val++;
+      if (val > getMax()) val = getMax();
+      input.value = val;
+    });
+  };
+
+  setupControls('profileAge', 'btn-dec-profileAge', 'btn-inc-profileAge');
+  setupControls('obAge', 'btn-dec-obAge', 'btn-inc-obAge');
+}
+
+// ── ACCESIBILIDAD: TEMA Y FUENTE ────────────────────────────
+const PREFS_KEY = 'sos911_app_prefs';
+const FONT_STEPS = [87.5, 100, 112.5, 125, 137.5];
+const DEFAULT_FONT_INDEX = 1; // 100%
+
+function loadPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
+  } catch { return {}; }
+}
+
+function savePrefs(prefs) {
+  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+}
+
+function applyFontScale(pct) {
+  document.documentElement.style.fontSize = pct + '%';
+}
+
+function initAccessibilitySettings() {
+  const prefs = loadPrefs();
+  const theme = prefs.theme || 'dark';
+  const fontIdx = typeof prefs.fontIndex === 'number' ? prefs.fontIndex : DEFAULT_FONT_INDEX;
+
+  // Apply stored values immediately
+  applyTheme(theme);
+  applyFontScale(FONT_STEPS[fontIdx]);
+
+  // Theme toggle
+  const toggle = $('themeToggle');
+  if (toggle) {
+    toggle.checked = (theme === 'light');
+    toggle.addEventListener('change', () => {
+      const newTheme = toggle.checked ? 'light' : 'dark';
+      applyTheme(newTheme);
+      const p = loadPrefs();
+      p.theme = newTheme;
+      savePrefs(p);
+    });
+  }
+
+  // Font controls
+  const btnDec = $('btnFontDec');
+  const btnInc = $('btnFontInc');
+  const indicator = $('fontSizeIndicator');
+  let currentIdx = fontIdx;
+
+  function updateFontUI() {
+    if (indicator) indicator.textContent = FONT_STEPS[currentIdx] + '%';
+    if (btnDec) btnDec.disabled = currentIdx <= 0;
+    if (btnInc) btnInc.disabled = currentIdx >= FONT_STEPS.length - 1;
+  }
+
+  updateFontUI();
+
+  if (btnDec) {
+    btnDec.addEventListener('click', () => {
+      if (currentIdx > 0) {
+        currentIdx--;
+        applyFontScale(FONT_STEPS[currentIdx]);
+        updateFontUI();
+        const p = loadPrefs();
+        p.fontIndex = currentIdx;
+        savePrefs(p);
+      }
+    });
+  }
+
+  if (btnInc) {
+    btnInc.addEventListener('click', () => {
+      if (currentIdx < FONT_STEPS.length - 1) {
+        currentIdx++;
+        applyFontScale(FONT_STEPS[currentIdx]);
+        updateFontUI();
+        const p = loadPrefs();
+        p.fontIndex = currentIdx;
+        savePrefs(p);
+      }
+    });
+  }
+}
+
 // ── INICIALIZACIÓN PRINCIPAL ─────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadState();
+  initAccessibilitySettings();
+  initNumberInputControls();
+  initAuthScreen();
+  initOnboardingScreen();
+  initMedicalBannerClose();
   initNav();
   initPanicButtons();
   initResolutionModal();
