@@ -753,6 +753,13 @@ function initProfileModal() {
     closeBtn.addEventListener('click', () => backdrop.classList.remove('open'));
   }
 
+  const logoutBtn = $('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      logoutUser();
+    });
+  }
+
   // Profile Tabs Logic
   const pTabs = $$('.profile-tab');
   const pContents = $$('.profile-tab-content');
@@ -918,6 +925,17 @@ function simpleHash(str) {
   return 'H' + Math.abs(hash).toString(36);
 }
 
+function getAccountsDB() {
+  try {
+    const raw = localStorage.getItem('sos911_accounts_db');
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) { return {}; }
+}
+
+function saveAccountsDB(db) {
+  localStorage.setItem('sos911_accounts_db', JSON.stringify(db));
+}
+
 function getAuthUser() {
   try {
     const raw = localStorage.getItem('sos911_auth_user');
@@ -932,6 +950,26 @@ function saveAuthUser(data) {
 function dismissAuth() {
   const authScreen = $('authScreen');
   if (authScreen) authScreen.classList.add('hidden');
+}
+
+function logoutUser() {
+  const authUser = getAuthUser();
+  if (authUser) {
+    authUser.isLoggedIn = false;
+    saveAuthUser(authUser);
+  }
+  const backdrop = $('profileModalBackdrop');
+  if (backdrop) backdrop.classList.remove('open');
+
+  const authScreen = $('authScreen');
+  if (authScreen) authScreen.classList.remove('hidden');
+
+  const loginEmail = $('loginEmail');
+  const loginPassword = $('loginPassword');
+  if (loginEmail) loginEmail.value = '';
+  if (loginPassword) loginPassword.value = '';
+
+  showToast('🚪 Sesión cerrada correctamente', '#2563EB');
 }
 
 function showOnboarding() {
@@ -960,7 +998,7 @@ function initAuthScreen() {
 
   // Verificar si ya hay sesión activa
   const authUser = getAuthUser();
-  if (authUser && authUser.registered) {
+  if (authUser && authUser.registered && authUser.isLoggedIn !== false) {
     dismissAuth();
     return;
   }
@@ -1025,24 +1063,35 @@ function initAuthScreen() {
         return;
       }
 
-      const storedUser = getAuthUser();
+      const db = getAccountsDB();
+      let account = db[email];
 
-      if (!storedUser || !storedUser.registered) {
-        showToast('❌ No existe cuenta. Por favor regístrate primero.', '#DC2626');
+      // Migración de datos legados si existía una cuenta sin db
+      const legacyUser = getAuthUser();
+      if (!account && legacyUser && legacyUser.registered && legacyUser.email === email) {
+        account = legacyUser;
+        db[email] = account;
+        saveAccountsDB(db);
+      }
+
+      if (!account || !account.registered) {
+        showToast('❌ No existe cuenta registrada con este correo.', '#DC2626');
         return;
       }
 
-      if (storedUser.email !== email) {
-        showToast('❌ Correo incorrecto.', '#DC2626');
-        return;
-      }
-
-      if (storedUser.passwordHash !== simpleHash(password)) {
+      if (account.passwordHash !== simpleHash(password)) {
         showToast('❌ Contraseña incorrecta.', '#DC2626');
         return;
       }
 
-      showToast(`✅ ¡Bienvenido de nuevo, ${storedUser.name || 'Usuario'}!`, '#16A34A');
+      saveAuthUser({ ...account, isLoggedIn: true });
+
+      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+      state.user.name = account.name || 'Usuario';
+      state.user.email = account.email;
+      saveState();
+
+      showToast(`✅ ¡Bienvenido de nuevo, ${account.name || 'Usuario'}!`, '#16A34A');
       dismissAuth();
     });
   }
@@ -1071,7 +1120,12 @@ function initAuthScreen() {
         showToast('⚠️ La contraseña debe tener al menos 6 caracteres', '#D97706'); return;
       }
 
-      saveAuthUser({ name, email, passwordHash: simpleHash(password), registered: true });
+      const db = getAccountsDB();
+      const newAccount = { name, email, passwordHash: simpleHash(password), registered: true };
+      db[email] = newAccount;
+      saveAccountsDB(db);
+
+      saveAuthUser({ ...newAccount, isLoggedIn: true });
 
       // Actualizar nombre en el perfil del estado
       if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
