@@ -1,552 +1,263 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SOS911 — Sistema de Emergencias Urbanas</title>
-  <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
-  <!-- Leaflet.js CSS para Mapas Interactivos -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-</head>
-<body>
-  <!-- ══ PANTALLA DE AUTENTICACIÓN (OVERLAY FULL-SCREEN) ══ -->
-  <div id="authScreen" class="auth-overlay hidden">
-    <div class="auth-inner">
-      <div class="auth-logo">
-        <div class="auth-logo-badge">
-          <span class="material-symbols-rounded">health_and_safety</span>
-        </div>
-        <h1 class="auth-title">SOS<span>911</span></h1>
-        <p class="auth-subtitle">Sistema de Emergencias Urbanas</p>
-      </div>
-
-      <div class="auth-card">
-        <!-- TABS -->
-        <div class="auth-tab-switcher">
-          <button class="auth-tab active" id="tabLoginBtn" data-tab="loginForm">Iniciar Sesión</button>
-          <button class="auth-tab" id="tabRegisterBtn" data-tab="registerForm">Crear Cuenta</button>
-        </div>
-
-        <!-- FORMULARIO LOGIN -->
-        <form id="loginForm" class="auth-form" onsubmit="return false;">
-          <div class="form-group">
-            <label for="loginEmail">
-              <span class="material-symbols-rounded form-icon">mail</span> Correo Electrónico
-            </label>
-            <input type="email" id="loginEmail" placeholder="usuario@correo.com" autocomplete="email" required>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SOS911 — Sistema de Emergencias Urbanas</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
+    />
+    <!-- Leaflet.js CSS para Mapas Interactivos -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body>
+    <!-- ══ PANTALLA DE AUTENTICACIÓN (OVERLAY FULL-SCREEN) ══ -->
+    <div id="authScreen" class="auth-overlay hidden">
+      <div class="auth-inner">
+        <div class="auth-logo">
+          <div class="auth-logo-badge">
+            <span class="material-symbols-rounded">health_and_safety</span>
           </div>
-          <div class="form-group">
-            <label for="loginPassword">
-              <span class="material-symbols-rounded form-icon">lock</span> Contraseña
-            </label>
-            <div class="input-icon-group">
-              <input type="password" id="loginPassword" placeholder="Tu contraseña" autocomplete="current-password" required>
-              <button type="button" class="toggle-password" id="toggleLoginPwd" tabindex="-1">
-                <span class="material-symbols-rounded">visibility</span>
-              </button>
+          <h1 class="auth-title">SOS<span>911</span></h1>
+          <p class="auth-subtitle">Sistema de Emergencias Urbanas</p>
+        </div>
+
+        <div class="auth-card">
+          <!-- TABS -->
+          <div class="auth-tab-switcher">
+            <button
+              class="auth-tab active"
+              id="tabLoginBtn"
+              data-tab="loginForm"
+            >
+              Iniciar Sesión
+            </button>
+            <button
+              class="auth-tab"
+              id="tabRegisterBtn"
+              data-tab="registerForm"
+            >
+              Crear Cuenta
+            </button>
+          </div>
+
+          <!-- FORMULARIO LOGIN -->
+          <form id="loginForm" class="auth-form" onsubmit="return false;">
+            <!-- CONTENEDOR DE CUENTAS GUARDADAS -->
+            <div
+              id="savedAccountsContainer"
+              class="saved-accounts-section hidden"
+            >
+              <div class="saved-accounts-header">
+                <span class="material-symbols-rounded">group</span> Cuentas en
+                este dispositivo
+              </div>
+              <div id="savedAccountsList" class="saved-accounts-list"></div>
             </div>
-          </div>
-          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="loginSubmitBtn">
-            <span class="material-symbols-rounded">login</span> Ingresar al Sistema
-          </button>
-        </form>
 
-        <!-- FORMULARIO REGISTRO -->
-        <form id="registerForm" class="auth-form hidden" onsubmit="return false;">
-          <div class="form-group">
-            <label for="regName">
-              <span class="material-symbols-rounded form-icon">person</span> Nombre Completo
-            </label>
-            <input type="text" id="regName" placeholder="Ej. María González" required>
-          </div>
-          <div class="form-group">
-            <label for="regEmail">
-              <span class="material-symbols-rounded form-icon">mail</span> Correo Electrónico
-            </label>
-            <input type="email" id="regEmail" placeholder="usuario@correo.com" autocomplete="email" required>
-          </div>
-          <div class="form-group">
-            <label for="regPassword">
-              <span class="material-symbols-rounded form-icon">lock</span> Contraseña
-            </label>
-            <div class="input-icon-group">
-              <input type="password" id="regPassword" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
-              <button type="button" class="toggle-password" id="toggleRegPwd" tabindex="-1">
-                <span class="material-symbols-rounded">visibility</span>
-              </button>
-            </div>
-          </div>
-          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="registerSubmitBtn">
-            <span class="material-symbols-rounded">person_add</span> Crear Cuenta
-          </button>
-        </form>
-      </div>
-
-      <p class="auth-legal">Tus datos se almacenan localmente en tu dispositivo.<br>No se transmite información a servidores externos.</p>
-    </div>
-  </div>
-
-  <!-- ══ PANTALLA ONBOARDING — FICHA DE EMERGENCIA ══ -->
-  <div id="onboardingScreen" class="auth-overlay hidden">
-    <div class="auth-inner">
-      <div class="auth-logo">
-        <div class="auth-logo-badge onboarding-badge">
-          <span class="material-symbols-rounded">medical_information</span>
-        </div>
-        <h1 class="auth-title">Ficha de <span>Emergencia</span></h1>
-        <p class="auth-subtitle">Esta información se envía automáticamente a los servicios de auxilio al activar una alerta.</p>
-      </div>
-
-      <div class="auth-card onboarding-card">
-        <form id="onboardingForm" onsubmit="return false;">
-          <!-- Fila: Edad + Tipo de Sangre -->
-          <div class="form-row">
             <div class="form-group">
-              <label for="obAge">
-                <span class="material-symbols-rounded form-icon">cake</span> Edad
+              <label for="loginEmail">
+                <span class="material-symbols-rounded form-icon">mail</span>
+                Correo Electrónico
+                <span
+                  class="email-valid-badge hidden"
+                  id="loginEmailValid"
+                  title="Correo válido"
+                  ><span class="material-symbols-rounded"
+                    >check_circle</span
+                  ></span
+                >
               </label>
-              <div class="number-input-wrapper">
-                <button type="button" class="btn-num-control" id="btn-dec-obAge">&minus;</button>
-                <input type="number" id="obAge" placeholder="Ej. 28" min="1" max="120">
-                <button type="button" class="btn-num-control" id="btn-inc-obAge">&plus;</button>
-              </div>
+              <input
+                type="email"
+                id="loginEmail"
+                placeholder="usuario@correo.com"
+                autocomplete="email"
+                required
+              />
             </div>
             <div class="form-group">
-              <label for="obBloodType">
-                <span class="material-symbols-rounded form-icon">bloodtype</span> Tipo de Sangre
+              <label for="loginPassword">
+                <span class="material-symbols-rounded form-icon">lock</span>
+                Contraseña
               </label>
-              <div class="select-wrapper">
-                <select id="obBloodType">
-                  <option value="">Seleccionar...</option>
-                  <option value="A+">A+</option>
-                  <option value="A-">A-</option>
-                  <option value="B+">B+</option>
-                  <option value="B-">B-</option>
-                  <option value="AB+">AB+</option>
-                  <option value="AB-">AB-</option>
-                  <option value="O+">O+</option>
-                  <option value="O-">O-</option>
-                  <option value="Desconocido">Desconocido</option>
-                </select>
+              <div class="input-icon-group">
+                <input
+                  type="password"
+                  id="loginPassword"
+                  placeholder="Tu contraseña"
+                  autocomplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  class="toggle-password"
+                  id="toggleLoginPwd"
+                  tabindex="-1"
+                >
+                  <span class="material-symbols-rounded">visibility</span>
+                </button>
               </div>
             </div>
-          </div>
-
-          <div class="form-group">
-            <label for="obCondition">
-              <span class="material-symbols-rounded form-icon">monitor_heart</span> Enfermedad o Condición Médica
-            </label>
-            <input type="text" id="obCondition" placeholder="Ej. Diabetes tipo 2, Hipertensión (opcional)">
-          </div>
-
-          <div class="form-group">
-            <label for="obAllergies">
-              <span class="material-symbols-rounded form-icon">warning</span> Alergias Severas a Medicamentos
-            </label>
-            <input type="text" id="obAllergies" placeholder="Ej. Penicilina, Ibuprofeno (opcional)">
-          </div>
-
-          <div class="ob-section-label">
-            <span class="material-symbols-rounded">contact_phone</span>
-            Contacto de Emergencia Principal
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="obEcName">Nombre</label>
-              <input type="text" id="obEcName" placeholder="Ej. Ana García">
-            </div>
-            <div class="form-group">
-              <label for="obEcPhone">Teléfono</label>
-              <input type="tel" id="obEcPhone" placeholder="+593 99 000 0000">
-            </div>
-          </div>
-
-          <button type="submit" class="btn btn-red full-width auth-submit-btn" id="onboardingSubmitBtn">
-            <span class="material-symbols-rounded">shield_person</span> Guardar y Acceder al Sistema
-          </button>
-          <button type="button" class="btn btn-secondary full-width" id="onboardingSkipBtn" style="margin-top:8px;">
-            Completar después
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <div class="app-shell">
-    
-    <!-- BANNER DE EMERGENCIA GLOBAL (CUANDO LA ALERTA ESTÁ ACTIVA) -->
-    <div id="emergencyBanner" class="emergency-banner hidden">
-      <div class="eb-content">
-        <span class="pulse-icon material-symbols-rounded">warning</span>
-        <div class="eb-text">
-          <strong id="ebTitle">⚡ ALERTA DE EMERGENCIA ACTIVADA</strong>
-          <span id="ebTimer">Tiempo activo: 00:00</span>
-        </div>
-      </div>
-      <button class="btn-banner-action" id="bannerMapBtn">Ver Mapa</button>
-    </div>
-
-    <!-- TARJETA MÉDICA EN EMERGENCIA (VISIBLE EN HOME DURANTE ALERTA) -->
-    <div id="medicalBannerCard" class="medical-banner-card hidden">
-      <div class="mbc-header">
-        <span class="material-symbols-rounded mbc-icon">medical_information</span>
-        <strong>Ficha Médica Transmitida</strong>
-        <button class="mbc-close" id="closeMedicalBanner">&times;</button>
-      </div>
-      <div class="mbc-body">
-        <div class="mbc-row">
-          <span class="mbc-label">🩸 Sangre</span>
-          <span class="mbc-value" id="mbcBlood">—</span>
-        </div>
-        <div class="mbc-row">
-          <span class="mbc-label">⚕️ Condición</span>
-          <span class="mbc-value" id="mbcCondition">—</span>
-        </div>
-        <div class="mbc-row">
-          <span class="mbc-label">⚠️ Alergias</span>
-          <span class="mbc-value" id="mbcAllergies">—</span>
-        </div>
-        <div class="mbc-row">
-          <span class="mbc-label">📞 Contacto</span>
-          <span class="mbc-value" id="mbcContact">—</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- HEADER SUPERIOR -->
-    <header class="top-header" id="appHeader">
-      <div class="header-brand">
-        <div class="logo-icon-badge">
-          <span class="material-symbols-rounded">health_and_safety</span>
-        </div>
-        <div class="brand-text">
-          <h1 class="app-title">SOS911</h1>
-          <span class="system-status" id="systemStatusTag">
-            <span class="status-dot-mini green" id="statusDot"></span>
-            <span id="statusLabel">Sistema Seguro</span>
-          </span>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="icon-btn" id="directCallBtn" title="Llamada Directa 911">
-          <span class="material-symbols-rounded" style="color: #EF4444;">phone_in_talk</span>
-        </button>
-        <button class="icon-btn profile-btn" id="openProfileBtn" title="Perfil de Usuario">
-          <span class="material-symbols-rounded">account_circle</span>
-        </button>
-      </div>
-    </header>
-
-    <!-- ÁREA DE CONTENIDO (PANTALLAS) -->
-    <main class="content-area">
-      
-      <!-- PANTALLA 1: INICIO (BOTÓN DE PÁNICO) -->
-      <section id="view-home" class="view-panel active">
-        <div class="card logo-card">
-          <div class="brand-badge">
-            <span class="material-symbols-rounded">shield_person</span>
-          </div>
-          <h2 class="hero-title">Centro de Control SOS</h2>
-          <p class="hero-subtitle">Mantén presionado el botón por 3 segundos en caso de peligro o selecciona la categoría.</p>
-        </div>
-
-        <!-- BOTÓN DE PÁNICO PRINCIPAL CON BARRA DE CARGA Y ANILLO -->
-        <div class="panic-wrapper">
-          <button class="panic-btn main-panic-btn" data-type="general" data-name="Emergencia General" data-icon="warning">
-            <div class="pb-ring-outer"></div>
-            <div class="pb-hold-bar"></div>
-            <div class="pb-content">
-              <span class="material-symbols-rounded panic-icon">touch_app</span>
-              <span class="panic-label">BOTÓN DE PÁNICO</span>
-              <span class="panic-sublabel">Mantén presionado 3s</span>
-            </div>
-          </button>
-        </div>
-
-        <!-- ACCESOS RÁPIDOS POR CATEGORÍA DE EMERGENCIA -->
-        <div class="category-section">
-          <h3 class="section-heading">Selección Rápida por Incidente</h3>
-          <div class="category-grid">
-            <button class="category-card panic-btn" data-type="robo" data-name="Robo / Asalto" data-icon="local_police">
-              <div class="pb-hold-bar"></div>
-              <span class="material-symbols-rounded cat-icon red">local_police</span>
-              <span class="cat-title">Robo / Asalto</span>
-              <span class="cat-sub">Sostén 3s</span>
+            <button
+              type="submit"
+              class="btn btn-red full-width auth-submit-btn"
+              id="loginSubmitBtn"
+            >
+              <span class="material-symbols-rounded">login</span> Ingresar al
+              Sistema
             </button>
-            
-            <button class="category-card panic-btn" data-type="incendio" data-name="Incendio" data-icon="local_fire_department">
-              <div class="pb-hold-bar"></div>
-              <span class="material-symbols-rounded cat-icon orange">local_fire_department</span>
-              <span class="cat-title">Incendio</span>
-              <span class="cat-sub">Sostén 3s</span>
-            </button>
-            
-            <button class="category-card panic-btn" data-type="medica" data-name="Emergencia Médica" data-icon="medical_services">
-              <div class="pb-hold-bar"></div>
-              <span class="material-symbols-rounded cat-icon blue">medical_services</span>
-              <span class="cat-title">Emergencia Médica</span>
-              <span class="cat-sub">Sostén 3s</span>
-            </button>
+          </form>
 
-            <button class="category-card panic-btn" data-type="general" data-name="Alerta Sospechosa" data-icon="notifications_active">
-              <div class="pb-hold-bar"></div>
-              <span class="material-symbols-rounded cat-icon amber">notifications_active</span>
-              <span class="cat-title">Sospecha / Alerta</span>
-              <span class="cat-sub">Sostén 3s</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- TARJETAS DE ACCIÓN AUXILIAR -->
-        <div class="action-grid">
-          <button class="action-card" id="myLocationBtn">
-            <span class="material-symbols-rounded card-icon indigo">my_location</span>
-            <div class="ac-text">
-              <strong>Mi Ubicación GPS</strong>
-              <span id="homeLocationPreview">Mapa & Seguimiento en Vivo</span>
-            </div>
-          </button>
-          <button class="action-card" id="quickContactsBtn">
-            <span class="material-symbols-rounded card-icon indigo">family_restroom</span>
-            <div class="ac-text">
-              <strong>Red de Apoyo</strong>
-              <span id="homeContactCount">Cargando contactos...</span>
-            </div>
-          </button>
-        </div>
-      </section>
-
-      <!-- PANTALLA 2: MAPA EN VIVO Y DESPACHO -->
-      <section id="view-map" class="view-panel hidden">
-        <div class="map-header">
-          <div class="map-status-pill danger" id="mapStatusPill">
-            <span class="material-symbols-rounded blink">fading_indicator</span>
-            <span id="mapStatusText">Monitoreo GPS Activo</span>
-          </div>
-        </div>
-        
-        <!-- CONTENEDOR DEL MAPA LEAFLET -->
-        <div class="map-card-wrapper">
-          <div id="map" class="leaflet-map-container"></div>
-          
-          <div class="location-floating-card">
-            <span class="material-symbols-rounded pin-icon">location_on</span>
-            <div class="location-info">
-              <strong>Ubicación Detectada</strong>
-              <p id="liveAddressText">Obteniendo coordenadas GPS real...</p>
-              <small id="liveCoordsText">Lat: -- , Lng: --</small>
-            </div>
-          </div>
-        </div>
-
-        <!-- ACCIONES DEL MAPA -->
-        <div class="map-actions">
-          <button class="btn btn-blue" id="shareLocationBtn">
-            <span class="material-symbols-rounded">share</span> Compartir Ubicación GPS
-          </button>
-          <button class="btn btn-red hidden" id="cancelEmergencyBtn">
-            <span class="material-symbols-rounded">cancel</span> Cancelar Alerta
-          </button>
-        </div>
-
-        <!-- LÍNEA DE TIEMPO DE DESPACHO 911 (ACTIVA EN EMERGENCIA) -->
-        <div class="dispatch-section" id="dispatchSection" style="display: none;">
-          <h3 class="section-title">Protocolo de Despacho 911 en Curso</h3>
-          <div class="timeline-stepper">
-            <div class="timeline-step active" id="tl1">
-              <div class="step-icon"><span class="material-symbols-rounded">sensors</span></div>
-              <div class="step-content">
-                <strong>1. Transmisión de Alerta</strong>
-                <p>Coordenadas enviadas a la Central 911.</p>
-              </div>
-            </div>
-            <div class="timeline-step" id="tl2">
-              <div class="step-icon"><span class="material-symbols-rounded">local_police</span></div>
-              <div class="step-content">
-                <strong>2. Asignación de Unidad</strong>
-                <p id="tl2desc">Buscando cuadrante más cercano...</p>
-              </div>
-            </div>
-            <div class="timeline-step" id="tl3">
-              <div class="step-icon"><span class="material-symbols-rounded">directions_car</span></div>
-              <div class="step-content">
-                <strong>3. Patrullero en Ruta</strong>
-                <p id="tl3desc">Esperando confirmación de despacho...</p>
-              </div>
-            </div>
-            <div class="timeline-step" id="tl4">
-              <div class="step-icon"><span class="material-symbols-rounded">shield</span></div>
-              <div class="step-content">
-                <strong>4. Unidad en Escena</strong>
-                <p>Oficiales arribando a la ubicación.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- FEED DE CHAT Y NOTIFICACIONES EN VIVO -->
-        <div class="chat-section">
-          <h3 class="section-title">Red Vecinal y Canal de Monitoreo</h3>
-          <div class="chat-feed" id="chatFeed">
-            <div class="chat-msg system">
-              <span class="cm-sender">Sistema SOS911:</span> Presione el Botón de Pánico para activar la transmisión automática a la red de apoyo.
-            </div>
-          </div>
-        </div>
-
-        <!-- CONTACTOS NOTIFICADOS -->
-        <div class="notified-section">
-          <h3 class="section-title">Red de Contactos Alertados</h3>
-          <div id="notifiedContactsList" class="notified-contacts-grid">
-            <p class="empty-state-text">No hay alertas transmitidas en este momento.</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- PANTALLA 3: CONTACTOS DE CONFIANZA -->
-      <section id="view-contacts" class="view-panel hidden">
-        <div class="contacts-header">
-          <h2>Red de Apoyo Inmediato</h2>
-          <p>Tus contactos recibirán alertas por SMS y enlace de mapa GPS al activar una emergencia.</p>
-        </div>
-
-        <div class="contact-list" id="contactsListContainer">
-          <!-- Renderizado dinámico desde JS -->
-        </div>
-
-        <!-- FORMULARIO AGREGAR CONTACTO -->
-        <div class="add-contact-card">
-          <h3>
-            <span class="material-symbols-rounded">person_add</span> 
-            Agregar Contacto de Confianza
-          </h3>
-          <form id="addContactForm" onsubmit="return false;">
+          <!-- FORMULARIO REGISTRO -->
+          <form
+            id="registerForm"
+            class="auth-form hidden"
+            onsubmit="return false;"
+          >
             <div class="form-group">
-              <label for="contactNameInput">Nombre Completo</label>
-              <input type="text" id="contactNameInput" placeholder="Ej. Ana García (Mamá)" required>
+              <label for="regName">
+                <span class="material-symbols-rounded form-icon">person</span>
+                Nombre Completo
+              </label>
+              <input
+                type="text"
+                id="regName"
+                placeholder="Ej. María González"
+                required
+              />
             </div>
             <div class="form-group">
-              <label for="contactPhoneInput">Número Telefónico (con código de país)</label>
-              <input type="tel" id="contactPhoneInput" placeholder="Ej. +593 99 123 4567" required>
+              <label for="regEmail">
+                <span class="material-symbols-rounded form-icon">mail</span>
+                Correo Electrónico
+                <span
+                  class="email-valid-badge hidden"
+                  id="regEmailValid"
+                  title="Correo válido"
+                  ><span class="material-symbols-rounded"
+                    >check_circle</span
+                  ></span
+                >
+              </label>
+              <input
+                type="email"
+                id="regEmail"
+                placeholder="usuario@correo.com"
+                autocomplete="email"
+                required
+              />
             </div>
             <div class="form-group">
-              <label for="contactRelationInput">Relación / Parentesco</label>
-              <input type="text" id="contactRelationInput" placeholder="Ej. Familiar, Vecino, Trabajo">
+              <label for="regPassword">
+                <span class="material-symbols-rounded form-icon">lock</span>
+                Contraseña
+              </label>
+              <div class="input-icon-group">
+                <input
+                  type="password"
+                  id="regPassword"
+                  placeholder="Mínimo 6 caracteres"
+                  autocomplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  class="toggle-password"
+                  id="toggleRegPwd"
+                  tabindex="-1"
+                >
+                  <span class="material-symbols-rounded">visibility</span>
+                </button>
+              </div>
             </div>
-            <button type="submit" class="btn btn-red full-width" id="saveContactBtn">
-              <span class="material-symbols-rounded">save</span> Guardar en Red de Apoyo
+            <button
+              type="submit"
+              class="btn btn-red full-width auth-submit-btn"
+              id="registerSubmitBtn"
+            >
+              <span class="material-symbols-rounded">person_add</span> Crear
+              Cuenta
             </button>
           </form>
         </div>
-      </section>
 
-      <!-- PANTALLA 4: HISTORIAL DE INCIDENTES -->
-      <section id="view-history" class="view-panel hidden">
-        <div class="history-header">
-          <h2>Historial de Registro de Alertas</h2>
-          <p>Consulta los eventos finalizados y los reportes creados.</p>
+        <div class="auth-legal-badge">
+          <span class="material-symbols-rounded">verified_user</span>
+          <span
+            >Almacenamiento Local Seguro &bull; Sin servidores de terceros</span
+          >
         </div>
-
-        <div class="logs-container" id="logsList">
-          <!-- Renderizado dinámico -->
-        </div>
-      </section>
-
-    </main>
-
-    <!-- NAVEGACIÓN INFERIOR (BOTTOM NAV) -->
-    <nav class="bottom-nav">
-      <button class="nav-item active" data-tab="view-home" id="nav-inicio">
-        <span class="material-symbols-rounded nav-icon">home</span>
-        <span class="nav-text">Inicio</span>
-      </button>
-      <button class="nav-item" data-tab="view-map" id="nav-mapa">
-        <span class="material-symbols-rounded nav-icon">map</span>
-        <span class="nav-text">Mapa & GPS</span>
-      </button>
-      <button class="nav-item" data-tab="view-contacts" id="nav-contactos">
-        <span class="material-symbols-rounded nav-icon">contacts</span>
-        <span class="nav-text">Contactos</span>
-      </button>
-      <button class="nav-item" data-tab="view-history" id="nav-historial">
-        <span class="material-symbols-rounded nav-icon">history</span>
-        <span class="nav-text">Historial</span>
-      </button>
-    </nav>
-  </div>
-
-  <!-- MODAL 1: REGISTRO Y PERFIL DE USUARIO (RF-01) -->
-  <div class="modal-backdrop" id="profileModalBackdrop">
-    <div class="modal-card modal-card-tall">
-      <div class="modal-header">
-        <h3><span class="material-symbols-rounded">badge</span> Perfil y Ficha de Emergencia</h3>
-        <button class="modal-close-btn" id="closeProfileModal">&times;</button>
       </div>
-      <div class="modal-body">
-        <form id="profileForm" onsubmit="return false;">
+    </div>
 
-          <!-- TABS SUPERIORES -->
-          <div class="profile-tab-switcher">
-            <button type="button" class="profile-tab active" data-ptab="tabPersonal">Datos Personales</button>
-            <button type="button" class="profile-tab" data-ptab="tabMedical">Ficha Médica</button>
-            <button type="button" class="profile-tab" data-ptab="tabSettings">Contacto y Ajustes</button>
+    <!-- ══ PANTALLA ONBOARDING — FICHA DE EMERGENCIA ══ -->
+    <div id="onboardingScreen" class="auth-overlay hidden">
+      <div class="auth-inner">
+        <div class="auth-logo">
+          <div class="auth-logo-badge onboarding-badge">
+            <span class="material-symbols-rounded">medical_information</span>
           </div>
+          <h1 class="auth-title">Ficha de <span>Emergencia</span></h1>
+          <p class="auth-subtitle">
+            Esta información se envía automáticamente a los servicios de auxilio
+            al activar una alerta.
+          </p>
+        </div>
 
-          <!-- PESTAÑA 1: DATOS PERSONALES -->
-          <div id="tabPersonal" class="profile-tab-content">
-            <div class="profile-locked-notice">
-              <span class="material-symbols-rounded">lock</span>
-              Datos de registro. Edita desde Configuración de Cuenta.
-            </div>
-
-            <div class="form-grid">
+        <div class="auth-card onboarding-card">
+          <form id="onboardingForm" onsubmit="return false;">
+            <!-- Fila: Edad + Tipo de Sangre -->
+            <div class="form-row">
               <div class="form-group">
-                <label for="userNameInput">
-                  <span class="material-symbols-rounded field-lock-icon">lock</span> Nombre
+                <label for="obAge">
+                  <span class="material-symbols-rounded form-icon">cake</span>
+                  Edad
                 </label>
-                <input type="text" id="userNameInput" placeholder="Ej. Dr. Carlos Mendoza" readonly tabindex="-1">
-              </div>
-              <div class="form-group">
-                <label for="userPhoneInput">
-                  <span class="material-symbols-rounded field-lock-icon">lock</span> Teléfono
-                </label>
-                <input type="tel" id="userPhoneInput" placeholder="+593 98 765 4321" readonly tabindex="-1">
-              </div>
-              <div class="form-group col-span-2">
-                <label for="userEmailInput">
-                  <span class="material-symbols-rounded field-lock-icon">lock</span> Correo Electrónico
-                </label>
-                <input type="email" id="userEmailInput" placeholder="usuario@sos911.app" readonly tabindex="-1">
-              </div>
-              <div class="form-group col-span-2">
-                <label for="userAddressInput">
-                  <span class="material-symbols-rounded field-lock-icon">lock</span> Dirección Principal
-                </label>
-                <input type="text" id="userAddressInput" placeholder="Ej. Av. Amazonas N24-15 y Colón" readonly tabindex="-1">
-              </div>
-            </div>
-          </div>
-
-          <!-- PESTAÑA 2: FICHA MÉDICA -->
-          <div id="tabMedical" class="profile-tab-content hidden">
-            <div class="form-grid">
-              <div class="form-group">
-                <label for="profileAge">Edad <span class="field-required">*</span></label>
                 <div class="number-input-wrapper">
-                  <button type="button" class="btn-num-control" id="btn-dec-profileAge">&minus;</button>
-                  <input type="number" id="profileAge" placeholder="Ej. 28" min="1" max="120">
-                  <button type="button" class="btn-num-control" id="btn-inc-profileAge">&plus;</button>
+                  <button
+                    type="button"
+                    class="btn-num-control"
+                    id="btn-dec-obAge"
+                  >
+                    &minus;
+                  </button>
+                  <input
+                    type="number"
+                    id="obAge"
+                    placeholder="Ej. 28"
+                    min="1"
+                    max="120"
+                  />
+                  <button
+                    type="button"
+                    class="btn-num-control"
+                    id="btn-inc-obAge"
+                  >
+                    &plus;
+                  </button>
                 </div>
-                <span class="form-error-msg" id="err-profileAge"></span>
               </div>
-              
               <div class="form-group">
-                <label for="profileBloodType">Tipo de Sangre <span class="field-required">*</span></label>
+                <label for="obBloodType">
+                  <span class="material-symbols-rounded form-icon"
+                    >bloodtype</span
+                  >
+                  Tipo de Sangre
+                </label>
                 <div class="select-wrapper">
-                  <select id="profileBloodType">
+                  <select id="obBloodType">
                     <option value="">Seleccionar...</option>
                     <option value="A+">A+</option>
                     <option value="A-">A-</option>
@@ -559,172 +270,940 @@
                     <option value="Desconocido">Desconocido</option>
                   </select>
                 </div>
-                <span class="form-error-msg" id="err-profileBloodType"></span>
               </div>
+            </div>
 
+            <div class="form-group">
+              <label for="obCondition">
+                <span class="material-symbols-rounded form-icon"
+                  >monitor_heart</span
+                >
+                Enfermedad o Condición Médica
+              </label>
+              <input
+                type="text"
+                id="obCondition"
+                placeholder="Ej. Diabetes tipo 2, Hipertensión (opcional)"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="obAllergies">
+                <span class="material-symbols-rounded form-icon">warning</span>
+                Alergias Severas a Medicamentos
+              </label>
+              <input
+                type="text"
+                id="obAllergies"
+                placeholder="Ej. Penicilina, Ibuprofeno (opcional)"
+              />
+            </div>
+
+            <div class="ob-section-label">
+              <span class="material-symbols-rounded">contact_phone</span>
+              Contacto de Emergencia Principal
+            </div>
+
+            <div class="form-row">
               <div class="form-group">
-                <label for="profileInsurance">
-                  <span class="material-symbols-rounded form-icon">health_and_safety</span> Seguro Médico
-                </label>
-                <div class="select-wrapper">
-                  <select id="profileInsurance">
-                    <option value="">Seleccionar...</option>
-                    <option value="Ninguno">Ninguno</option>
-                    <option value="IESS">IESS</option>
-                    <option value="Seguro Privado">Seguro Privado</option>
-                    <option value="Otro">Otro</option>
-                  </select>
-                </div>
+                <label for="obEcName">Nombre</label>
+                <input type="text" id="obEcName" placeholder="Ej. Ana García" />
               </div>
-
               <div class="form-group">
-                <label for="profileMedication">
-                  <span class="material-symbols-rounded form-icon">medication</span> Medicación
-                </label>
-                <input type="text" id="profileMedication" placeholder="Ej. Insulina, Losartán">
+                <label for="obEcPhone">Teléfono</label>
+                <input
+                  type="tel"
+                  id="obEcPhone"
+                  placeholder="+593 99 000 0000"
+                />
               </div>
+            </div>
 
-              <div class="form-group col-span-2">
-                <label for="profileCondition">Enfermedad / Condición Médica</label>
-                <input type="text" id="profileCondition" placeholder="Ej. Diabetes tipo 2, Hipertensión">
+            <button
+              type="submit"
+              class="btn btn-red full-width auth-submit-btn"
+              id="onboardingSubmitBtn"
+            >
+              <span class="material-symbols-rounded">shield_person</span>
+              Guardar y Acceder al Sistema
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary full-width"
+              id="onboardingSkipBtn"
+              style="margin-top: 8px"
+            >
+              Completar después
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-shell">
+      <!-- BANNER DE EMERGENCIA GLOBAL (CUANDO LA ALERTA ESTÁ ACTIVA) -->
+      <div id="emergencyBanner" class="emergency-banner hidden">
+        <div class="eb-content">
+          <span class="pulse-icon material-symbols-rounded">warning</span>
+          <div class="eb-text">
+            <strong id="ebTitle">⚡ ALERTA DE EMERGENCIA ACTIVADA</strong>
+            <span id="ebTimer">Tiempo activo: 00:00</span>
+          </div>
+        </div>
+        <button class="btn-banner-action" id="bannerMapBtn">Ver Mapa</button>
+      </div>
+
+      <!-- TARJETA MÉDICA EN EMERGENCIA (VISIBLE EN HOME DURANTE ALERTA) -->
+      <div id="medicalBannerCard" class="medical-banner-card hidden">
+        <div class="mbc-header">
+          <span class="material-symbols-rounded mbc-icon"
+            >medical_information</span
+          >
+          <strong>Ficha Médica Transmitida</strong>
+          <button class="mbc-close" id="closeMedicalBanner">&times;</button>
+        </div>
+        <div class="mbc-body">
+          <div class="mbc-row">
+            <span class="mbc-label">🩸 Sangre</span>
+            <span class="mbc-value" id="mbcBlood">—</span>
+          </div>
+          <div class="mbc-row">
+            <span class="mbc-label">⚕️ Condición</span>
+            <span class="mbc-value" id="mbcCondition">—</span>
+          </div>
+          <div class="mbc-row">
+            <span class="mbc-label">⚠️ Alergias</span>
+            <span class="mbc-value" id="mbcAllergies">—</span>
+          </div>
+          <div class="mbc-row">
+            <span class="mbc-label">📞 Contacto</span>
+            <span class="mbc-value" id="mbcContact">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- HEADER SUPERIOR -->
+      <header class="top-header" id="appHeader">
+        <div class="header-brand">
+          <div class="logo-icon-badge">
+            <span class="material-symbols-rounded">health_and_safety</span>
+          </div>
+          <div class="brand-text">
+            <h1 class="app-title">SOS911</h1>
+            <span class="system-status" id="systemStatusTag">
+              <span class="status-dot-mini green" id="statusDot"></span>
+              <span id="statusLabel">Sistema Seguro</span>
+            </span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            class="icon-btn"
+            id="directCallBtn"
+            title="Llamada Directa 911"
+          >
+            <span class="material-symbols-rounded" style="color: #ef4444"
+              >phone_in_talk</span
+            >
+          </button>
+          <button
+            class="icon-btn profile-btn"
+            id="openProfileBtn"
+            title="Perfil de Usuario"
+          >
+            <span class="material-symbols-rounded">account_circle</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- ÁREA DE CONTENIDO (PANTALLAS) -->
+      <main class="content-area">
+        <!-- PANTALLA 1: INICIO (BOTÓN DE PÁNICO) -->
+        <section id="view-home" class="view-panel active">
+          <div class="card logo-card">
+            <div class="brand-badge">
+              <span class="material-symbols-rounded">shield_person</span>
+            </div>
+            <h2 class="hero-title">Centro de Control SOS</h2>
+            <p class="hero-subtitle">
+              Mantén presionado el botón por 3 segundos en caso de peligro o
+              selecciona la categoría.
+            </p>
+          </div>
+
+          <!-- BOTÓN DE PÁNICO PRINCIPAL CON BARRA DE CARGA Y ANILLO -->
+          <div class="panic-wrapper">
+            <button
+              class="panic-btn main-panic-btn"
+              data-type="general"
+              data-name="Emergencia General"
+              data-icon="warning"
+            >
+              <div class="pb-ring-outer"></div>
+              <div class="pb-hold-bar"></div>
+              <div class="pb-content">
+                <span class="material-symbols-rounded panic-icon"
+                  >touch_app</span
+                >
+                <span class="panic-label">BOTÓN DE PÁNICO</span>
+                <span class="panic-sublabel">Mantén presionado 3s</span>
               </div>
+            </button>
+          </div>
 
-              <div class="form-group col-span-2">
-                <label for="profileAllergies">Alergias Severas a Medicamentos</label>
-                <input type="text" id="profileAllergies" placeholder="Ej. Penicilina, Ibuprofeno">
+          <!-- ACCESOS RÁPIDOS POR CATEGORÍA DE EMERGENCIA -->
+          <div class="category-section">
+            <h3 class="section-heading">Selección Rápida por Incidente</h3>
+            <div class="category-grid">
+              <button
+                class="category-card panic-btn"
+                data-type="robo"
+                data-name="Robo / Asalto"
+                data-icon="local_police"
+              >
+                <div class="pb-hold-bar"></div>
+                <span class="material-symbols-rounded cat-icon red"
+                  >local_police</span
+                >
+                <span class="cat-title">Robo / Asalto</span>
+                <span class="cat-sub">Sostén 3s</span>
+              </button>
+
+              <button
+                class="category-card panic-btn"
+                data-type="incendio"
+                data-name="Incendio"
+                data-icon="local_fire_department"
+              >
+                <div class="pb-hold-bar"></div>
+                <span class="material-symbols-rounded cat-icon orange"
+                  >local_fire_department</span
+                >
+                <span class="cat-title">Incendio</span>
+                <span class="cat-sub">Sostén 3s</span>
+              </button>
+
+              <button
+                class="category-card panic-btn"
+                data-type="medica"
+                data-name="Emergencia Médica"
+                data-icon="medical_services"
+              >
+                <div class="pb-hold-bar"></div>
+                <span class="material-symbols-rounded cat-icon blue"
+                  >medical_services</span
+                >
+                <span class="cat-title">Emergencia Médica</span>
+                <span class="cat-sub">Sostén 3s</span>
+              </button>
+
+              <button
+                class="category-card panic-btn"
+                data-type="general"
+                data-name="Alerta Sospechosa"
+                data-icon="notifications_active"
+              >
+                <div class="pb-hold-bar"></div>
+                <span class="material-symbols-rounded cat-icon amber"
+                  >notifications_active</span
+                >
+                <span class="cat-title">Sospecha / Alerta</span>
+                <span class="cat-sub">Sostén 3s</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- TARJETAS DE ACCIÓN AUXILIAR -->
+          <div class="action-grid">
+            <button class="action-card" id="myLocationBtn">
+              <span class="material-symbols-rounded card-icon indigo"
+                >my_location</span
+              >
+              <div class="ac-text">
+                <strong>Mi Ubicación GPS</strong>
+                <span id="homeLocationPreview">Mapa & Seguimiento en Vivo</span>
               </div>
+            </button>
+            <button class="action-card" id="quickContactsBtn">
+              <span class="material-symbols-rounded card-icon indigo"
+                >family_restroom</span
+              >
+              <div class="ac-text">
+                <strong>Red de Apoyo</strong>
+                <span id="homeContactCount">Cargando contactos...</span>
+              </div>
+            </button>
+          </div>
+        </section>
 
-              <div class="form-group col-span-2">
-                <label for="profileNotes">
-                  <span class="material-symbols-rounded form-icon">note_alt</span> Observaciones / Notas
-                </label>
-                <textarea id="profileNotes" rows="2" placeholder="Ej. Lleva marcapasos. No aplicar adrenalina."></textarea>
+        <!-- PANTALLA 2: MAPA EN VIVO Y DESPACHO -->
+        <section id="view-map" class="view-panel hidden">
+          <div class="map-header">
+            <div class="map-status-pill danger" id="mapStatusPill">
+              <span class="material-symbols-rounded blink"
+                >fading_indicator</span
+              >
+              <span id="mapStatusText">Monitoreo GPS Activo</span>
+            </div>
+          </div>
+
+          <!-- CONTENEDOR DEL MAPA LEAFLET -->
+          <div class="map-card-wrapper" id="mapCardWrapper">
+            <div
+              id="map"
+              class="leaflet-map-container"
+              title="Doble clic para maximizar el mapa"
+            ></div>
+
+            <!-- HINT Y BOTÓN DE EXPANDIR -->
+            <div class="map-expand-hint">
+              <span class="material-symbols-rounded">zoom_out_map</span> Doble
+              clic para expandir
+            </div>
+            <button
+              class="map-expand-btn"
+              id="expandMapBtn"
+              title="Pantalla Completa"
+            >
+              <span class="material-symbols-rounded">fullscreen</span>
+            </button>
+
+            <div class="location-floating-card">
+              <span class="material-symbols-rounded pin-icon">location_on</span>
+              <div class="location-info">
+                <strong>Ubicación Detectada</strong>
+                <p id="liveAddressText">Obteniendo coordenadas GPS real...</p>
+                <small id="liveCoordsText">Lat: -- , Lng: --</small>
               </div>
             </div>
           </div>
 
-          <!-- PESTAÑA 3: CONTACTO Y AJUSTES -->
-          <div id="tabSettings" class="profile-tab-content hidden">
-            <div class="profile-section-label">Contacto de Emergencia</div>
-            <div class="form-grid">
+          <!-- ACCIONES DEL MAPA -->
+          <div class="map-actions">
+            <button class="btn btn-blue" id="shareLocationBtn">
+              <span class="material-symbols-rounded">share</span> Compartir
+              Ubicación GPS
+            </button>
+            <button class="btn btn-red hidden" id="cancelEmergencyBtn">
+              <span class="material-symbols-rounded">cancel</span> Cancelar
+              Alerta
+            </button>
+          </div>
+
+          <!-- LÍNEA DE TIEMPO DE DESPACHO 911 (ACTIVA EN EMERGENCIA) -->
+          <div
+            class="dispatch-section"
+            id="dispatchSection"
+            style="display: none"
+          >
+            <h3 class="section-title">Protocolo de Despacho 911 en Curso</h3>
+            <div class="timeline-stepper">
+              <div class="timeline-step active" id="tl1">
+                <div class="step-icon">
+                  <span class="material-symbols-rounded">sensors</span>
+                </div>
+                <div class="step-content">
+                  <strong>1. Transmisión de Alerta</strong>
+                  <p>Coordenadas enviadas a la Central 911.</p>
+                </div>
+              </div>
+              <div class="timeline-step" id="tl2">
+                <div class="step-icon">
+                  <span class="material-symbols-rounded">local_police</span>
+                </div>
+                <div class="step-content">
+                  <strong>2. Asignación de Unidad</strong>
+                  <p id="tl2desc">Buscando cuadrante más cercano...</p>
+                </div>
+              </div>
+              <div class="timeline-step" id="tl3">
+                <div class="step-icon">
+                  <span class="material-symbols-rounded">directions_car</span>
+                </div>
+                <div class="step-content">
+                  <strong>3. Patrullero en Ruta</strong>
+                  <p id="tl3desc">Esperando confirmación de despacho...</p>
+                </div>
+              </div>
+              <div class="timeline-step" id="tl4">
+                <div class="step-icon">
+                  <span class="material-symbols-rounded">shield</span>
+                </div>
+                <div class="step-content">
+                  <strong>4. Unidad en Escena</strong>
+                  <p>Oficiales arribando a la ubicación.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- FEED DE CHAT Y NOTIFICACIONES EN VIVO -->
+          <div class="chat-section">
+            <h3 class="section-title">Red Vecinal y Canal de Monitoreo</h3>
+            <div class="chat-feed" id="chatFeed">
+              <div class="chat-msg system">
+                <span class="cm-sender">Sistema SOS911:</span> Presione el Botón
+                de Pánico para activar la transmisión automática a la red de
+                apoyo.
+              </div>
+            </div>
+          </div>
+
+          <!-- CONTACTOS NOTIFICADOS -->
+          <div class="notified-section">
+            <h3 class="section-title">Red de Contactos Alertados</h3>
+            <div id="notifiedContactsList" class="notified-contacts-grid">
+              <p class="empty-state-text">
+                No hay alertas transmitidas en este momento.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- PANTALLA 3: CONTACTOS DE CONFIANZA -->
+        <section id="view-contacts" class="view-panel hidden">
+          <div class="contacts-header">
+            <h2>Red de Apoyo Inmediato</h2>
+            <p>
+              Tus contactos recibirán alertas por SMS y enlace de mapa GPS al
+              activar una emergencia.
+            </p>
+          </div>
+
+          <div class="contact-list" id="contactsListContainer">
+            <!-- Renderizado dinámico desde JS -->
+          </div>
+
+          <!-- FORMULARIO AGREGAR CONTACTO -->
+          <div class="add-contact-card">
+            <h3>
+              <span class="material-symbols-rounded">person_add</span>
+              Agregar Contacto de Confianza
+            </h3>
+            <form id="addContactForm" onsubmit="return false;">
               <div class="form-group">
-                <label for="profileEcName">Nombre</label>
-                <input type="text" id="profileEcName" placeholder="Ej. Ana García">
+                <label for="contactNameInput">Nombre Completo</label>
+                <input
+                  type="text"
+                  id="contactNameInput"
+                  placeholder="Ej. Ana García (Mamá)"
+                  required
+                />
               </div>
               <div class="form-group">
-                <label for="profileEcPhone">Teléfono <span class="field-required">*</span></label>
-                <input type="tel" id="profileEcPhone" placeholder="+593 99 000 0000">
-                <span class="form-error-msg" id="err-profileEcPhone"></span>
+                <label for="contactPhoneInput"
+                  >Número Telefónico (con código de país)</label
+                >
+                <input
+                  type="tel"
+                  id="contactPhoneInput"
+                  placeholder="Ej. +593 99 123 4567"
+                  required
+                />
               </div>
+              <div class="form-group">
+                <label for="contactRelationInput">Relación / Parentesco</label>
+                <input
+                  type="text"
+                  id="contactRelationInput"
+                  placeholder="Ej. Familiar, Vecino, Trabajo"
+                />
+              </div>
+              <button
+                type="submit"
+                class="btn btn-red full-width"
+                id="saveContactBtn"
+              >
+                <span class="material-symbols-rounded">save</span> Guardar en
+                Red de Apoyo
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <!-- PANTALLA 4: HISTORIAL DE INCIDENTES -->
+        <section id="view-history" class="view-panel hidden">
+          <div class="history-header">
+            <h2>Historial de Registro de Alertas</h2>
+            <p>Consulta los eventos finalizados y los reportes creados.</p>
+          </div>
+
+          <div class="logs-container" id="logsList">
+            <!-- Renderizado dinámico -->
+          </div>
+        </section>
+      </main>
+
+      <!-- NAVEGACIÓN INFERIOR (BOTTOM NAV) -->
+      <nav class="bottom-nav">
+        <button class="nav-item active" data-tab="view-home" id="nav-inicio">
+          <span class="material-symbols-rounded nav-icon">home</span>
+          <span class="nav-text">Inicio</span>
+        </button>
+        <button class="nav-item" data-tab="view-map" id="nav-mapa">
+          <span class="material-symbols-rounded nav-icon">map</span>
+          <span class="nav-text">Mapa & GPS</span>
+        </button>
+        <button class="nav-item" data-tab="view-contacts" id="nav-contactos">
+          <span class="material-symbols-rounded nav-icon">contacts</span>
+          <span class="nav-text">Contactos</span>
+        </button>
+        <button class="nav-item" data-tab="view-history" id="nav-historial">
+          <span class="material-symbols-rounded nav-icon">history</span>
+          <span class="nav-text">Historial</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- MODAL 1: REGISTRO Y PERFIL DE USUARIO (RF-01) -->
+    <div class="modal-backdrop" id="profileModalBackdrop">
+      <div class="modal-card modal-card-tall">
+        <div class="modal-header">
+          <h3>
+            <span class="material-symbols-rounded">badge</span> Perfil y Ficha
+            de Emergencia
+          </h3>
+          <button class="modal-close-btn" id="closeProfileModal">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="profileForm" onsubmit="return false;">
+            <!-- TABS SUPERIORES -->
+            <div class="profile-tab-switcher">
+              <button
+                type="button"
+                class="profile-tab active"
+                data-ptab="tabPersonal"
+              >
+                Datos Personales
+              </button>
+              <button type="button" class="profile-tab" data-ptab="tabMedical">
+                Ficha Médica
+              </button>
+              <button type="button" class="profile-tab" data-ptab="tabSettings">
+                Contacto y Ajustes
+              </button>
             </div>
 
-            <div class="profile-section-label" style="margin-top:16px;">
-              <span class="material-symbols-rounded form-icon">settings_accessibility</span> Ajustes
-            </div>
-            
-            <div class="form-grid">
-              <div class="form-group col-span-2">
-                <label>Tema de Interfaz</label>
-                <div class="settings-row" style="padding-top: 6px;">
-                  <span class="material-symbols-rounded form-icon">dark_mode</span>
-                  <span class="settings-label">Oscuro</span>
-                  <label class="theme-switch" for="themeToggle">
-                    <input type="checkbox" id="themeToggle">
-                    <span class="theme-switch-slider"></span>
+            <!-- PESTAÑA 1: DATOS PERSONALES -->
+            <div id="tabPersonal" class="profile-tab-content">
+              <div class="profile-locked-notice">
+                <span class="material-symbols-rounded">lock</span>
+                Datos de registro. Edita desde Configuración de Cuenta.
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="userNameInput">
+                    <span class="material-symbols-rounded field-lock-icon"
+                      >lock</span
+                    >
+                    Nombre
                   </label>
-                  <span class="settings-label">Claro</span>
-                  <span class="material-symbols-rounded form-icon">light_mode</span>
+                  <input
+                    type="text"
+                    id="userNameInput"
+                    placeholder="Ej. Dr. Carlos Mendoza"
+                    readonly
+                    tabindex="-1"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="userPhoneInput">
+                    <span class="material-symbols-rounded field-lock-icon"
+                      >lock</span
+                    >
+                    Teléfono
+                  </label>
+                  <input
+                    type="tel"
+                    id="userPhoneInput"
+                    placeholder="+593 98 765 4321"
+                    readonly
+                    tabindex="-1"
+                  />
+                </div>
+                <div class="form-group col-span-2">
+                  <label for="userEmailInput">
+                    <span class="material-symbols-rounded field-lock-icon"
+                      >lock</span
+                    >
+                    Correo Electrónico
+                  </label>
+                  <input
+                    type="email"
+                    id="userEmailInput"
+                    placeholder="usuario@sos911.app"
+                    readonly
+                    tabindex="-1"
+                  />
+                </div>
+                <div class="form-group col-span-2">
+                  <label for="userAddressInput">
+                    <span class="material-symbols-rounded field-lock-icon"
+                      >lock</span
+                    >
+                    Dirección Principal
+                  </label>
+                  <input
+                    type="text"
+                    id="userAddressInput"
+                    placeholder="Ej. Av. Amazonas N24-15 y Colón"
+                    readonly
+                    tabindex="-1"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- PESTAÑA 2: FICHA MÉDICA -->
+            <div id="tabMedical" class="profile-tab-content hidden">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="profileAge"
+                    >Edad <span class="field-required">*</span></label
+                  >
+                  <div class="number-input-wrapper">
+                    <button
+                      type="button"
+                      class="btn-num-control"
+                      id="btn-dec-profileAge"
+                    >
+                      &minus;
+                    </button>
+                    <input
+                      type="number"
+                      id="profileAge"
+                      placeholder="Ej. 28"
+                      min="1"
+                      max="120"
+                    />
+                    <button
+                      type="button"
+                      class="btn-num-control"
+                      id="btn-inc-profileAge"
+                    >
+                      &plus;
+                    </button>
+                  </div>
+                  <span class="form-error-msg" id="err-profileAge"></span>
+                </div>
+
+                <div class="form-group">
+                  <label for="profileBloodType"
+                    >Tipo de Sangre <span class="field-required">*</span></label
+                  >
+                  <div class="select-wrapper">
+                    <select id="profileBloodType">
+                      <option value="">Seleccionar...</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                      <option value="Desconocido">Desconocido</option>
+                    </select>
+                  </div>
+                  <span class="form-error-msg" id="err-profileBloodType"></span>
+                </div>
+
+                <div class="form-group">
+                  <label for="profileInsurance">
+                    <span class="material-symbols-rounded form-icon"
+                      >health_and_safety</span
+                    >
+                    Seguro Médico
+                  </label>
+                  <div class="select-wrapper">
+                    <select id="profileInsurance">
+                      <option value="">Seleccionar...</option>
+                      <option value="Ninguno">Ninguno</option>
+                      <option value="IESS">IESS</option>
+                      <option value="Seguro Privado">Seguro Privado</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="profileMedication">
+                    <span class="material-symbols-rounded form-icon"
+                      >medication</span
+                    >
+                    Medicación
+                  </label>
+                  <input
+                    type="text"
+                    id="profileMedication"
+                    placeholder="Ej. Insulina, Losartán"
+                  />
+                </div>
+
+                <div class="form-group col-span-2">
+                  <label for="profileCondition"
+                    >Enfermedad / Condición Médica</label
+                  >
+                  <input
+                    type="text"
+                    id="profileCondition"
+                    placeholder="Ej. Diabetes tipo 2, Hipertensión"
+                  />
+                </div>
+
+                <div class="form-group col-span-2">
+                  <label for="profileAllergies"
+                    >Alergias Severas a Medicamentos</label
+                  >
+                  <input
+                    type="text"
+                    id="profileAllergies"
+                    placeholder="Ej. Penicilina, Ibuprofeno"
+                  />
+                </div>
+
+                <div class="form-group col-span-2">
+                  <label for="profileNotes">
+                    <span class="material-symbols-rounded form-icon"
+                      >note_alt</span
+                    >
+                    Observaciones / Notas
+                  </label>
+                  <textarea
+                    id="profileNotes"
+                    rows="2"
+                    placeholder="Ej. Lleva marcapasos. No aplicar adrenalina."
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- PESTAÑA 3: CONTACTO Y AJUSTES -->
+            <div id="tabSettings" class="profile-tab-content hidden">
+              <div class="profile-section-label">Contacto de Emergencia</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="profileEcName">Nombre</label>
+                  <input
+                    type="text"
+                    id="profileEcName"
+                    placeholder="Ej. Ana García"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="profileEcPhone"
+                    >Teléfono <span class="field-required">*</span></label
+                  >
+                  <input
+                    type="tel"
+                    id="profileEcPhone"
+                    placeholder="+593 99 000 0000"
+                  />
+                  <span class="form-error-msg" id="err-profileEcPhone"></span>
                 </div>
               </div>
 
-              <div class="form-group col-span-2">
-                <label>Tamaño de Letra</label>
-                <div class="settings-row" style="padding-top: 6px;">
-                  <button type="button" class="btn-font-control" id="btnFontDec">A&minus;</button>
-                  <span class="font-size-indicator" id="fontSizeIndicator">100%</span>
-                  <button type="button" class="btn-font-control" id="btnFontInc">A+</button>
+              <div class="profile-section-label" style="margin-top: 16px">
+                <span class="material-symbols-rounded form-icon"
+                  >settings_accessibility</span
+                >
+                Ajustes
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group col-span-2">
+                  <label>Tema de Interfaz</label>
+                  <div class="settings-row" style="padding-top: 6px">
+                    <span class="material-symbols-rounded form-icon"
+                      >dark_mode</span
+                    >
+                    <span class="settings-label">Oscuro</span>
+                    <label class="theme-switch" for="themeToggle">
+                      <input type="checkbox" id="themeToggle" />
+                      <span class="theme-switch-slider"></span>
+                    </label>
+                    <span class="settings-label">Claro</span>
+                    <span class="material-symbols-rounded form-icon"
+                      >light_mode</span
+                    >
+                  </div>
+                </div>
+
+                <div class="form-group col-span-2">
+                  <label>Tamaño de Letra</label>
+                  <div class="settings-row" style="padding-top: 6px">
+                    <button
+                      type="button"
+                      class="btn-font-control"
+                      id="btnFontDec"
+                    >
+                      A&minus;
+                    </button>
+                    <span class="font-size-indicator" id="fontSizeIndicator"
+                      >100%</span
+                    >
+                    <button
+                      type="button"
+                      class="btn-font-control"
+                      id="btnFontInc"
+                    >
+                      A+
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="profile-section-label" style="margin-top: 20px">
+                <span class="material-symbols-rounded form-icon"
+                  >account_circle</span
+                >
+                Cuenta de Usuario
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group col-span-2">
+                  <button
+                    type="button"
+                    class="btn btn-logout full-width"
+                    id="logoutBtn"
+                  >
+                    <span class="material-symbols-rounded">logout</span> Cerrar
+                    Sesión
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div class="profile-section-label" style="margin-top:20px;">
-              <span class="material-symbols-rounded form-icon">account_circle</span> Cuenta de Usuario
-            </div>
-
-            <div class="form-grid">
-              <div class="form-group col-span-2">
-                <button type="button" class="btn btn-logout full-width" id="logoutBtn">
-                  <span class="material-symbols-rounded">logout</span> Cerrar Sesión
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <button type="submit" class="btn btn-blue full-width" id="saveProfileBtn" style="margin-top: 16px;">
-            <span class="material-symbols-rounded">check_circle</span> Guardar Ficha
-          </button>
-
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL 2: CANCELACIÓN E INFORME DE RESOLUCIÓN DE EMERGENCIA -->
-  <div class="modal-backdrop" id="resolutionBackdrop">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3><span class="material-symbols-rounded">verified_user</span> Finalizar Alerta de Emergencia</h3>
-        <button class="modal-close-btn" id="rmDismiss">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-desc">
-          Para cerrar la alerta y restaurar el estado seguro, por favor escriba una breve explicación de la resolución (mínimo 6 caracteres).
-        </p>
-        <div class="form-group">
-          <label for="rmText">Informe de Cierre de Incidente</label>
-          <textarea id="rmText" rows="3" placeholder="Ej. Falsa alarma por prueba de botón / Situación controlada por personal de seguridad."></textarea>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" id="rmCancelBtn">Volver</button>
-          <button class="btn btn-red" id="rmSubmit">Confirmar Cierre de Alerta</button>
+            <button
+              type="submit"
+              class="btn btn-blue full-width"
+              id="saveProfileBtn"
+              style="margin-top: 16px"
+            >
+              <span class="material-symbols-rounded">check_circle</span> Guardar
+              Ficha
+            </button>
+          </form>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- MODAL 3: EDITAR CONTACTO -->
-  <div class="modal-backdrop" id="editContactModal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3><span class="material-symbols-rounded">edit</span> Editar Contacto</h3>
-        <button class="modal-close-btn" id="closeEditContactModal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <form id="editContactForm" onsubmit="return false;">
-          <input type="hidden" id="editContactId">
+    <!-- MODAL 2: CANCELACIÓN E INFORME DE RESOLUCIÓN DE EMERGENCIA -->
+    <div class="modal-backdrop" id="resolutionBackdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>
+            <span class="material-symbols-rounded">verified_user</span>
+            Finalizar Alerta de Emergencia
+          </h3>
+          <button class="modal-close-btn" id="rmDismiss">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">
+            Para cerrar la alerta y restaurar el estado seguro, por favor
+            escriba una breve explicación de la resolución (mínimo 6
+            caracteres).
+          </p>
           <div class="form-group">
-            <label for="editContactName">Nombre Completo</label>
-            <input type="text" id="editContactName" required>
+            <label for="rmText">Informe de Cierre de Incidente</label>
+            <textarea
+              id="rmText"
+              rows="3"
+              placeholder="Ej. Falsa alarma por prueba de botón / Situación controlada por personal de seguridad."
+            ></textarea>
           </div>
-          <div class="form-group">
-            <label for="editContactPhone">Teléfono</label>
-            <input type="tel" id="editContactPhone" required>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" id="rmCancelBtn">Volver</button>
+            <button class="btn btn-red" id="rmSubmit">
+              Confirmar Cierre de Alerta
+            </button>
           </div>
-          <div class="form-group">
-            <label for="editContactRelation">Relación</label>
-            <input type="text" id="editContactRelation">
-          </div>
-          <button type="submit" class="btn btn-blue full-width" id="saveEditContactBtn">
-            <span class="material-symbols-rounded">save</span> Guardar Cambios
-          </button>
-        </form>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Leaflet.js JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <!-- App JS -->
-  <script src="app.js"></script>
-</body>
+    <!-- MODAL 3: EDITAR CONTACTO -->
+    <div class="modal-backdrop" id="editContactModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>
+            <span class="material-symbols-rounded">edit</span> Editar Contacto
+          </h3>
+          <button class="modal-close-btn" id="closeEditContactModal">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="editContactForm" onsubmit="return false;">
+            <input type="hidden" id="editContactId" />
+            <div class="form-group">
+              <label for="editContactName">Nombre Completo</label>
+              <input type="text" id="editContactName" required />
+            </div>
+            <div class="form-group">
+              <label for="editContactPhone">Teléfono</label>
+              <input type="tel" id="editContactPhone" required />
+            </div>
+            <div class="form-group">
+              <label for="editContactRelation">Relación</label>
+              <input type="text" id="editContactRelation" />
+            </div>
+            <button
+              type="submit"
+              class="btn btn-blue full-width"
+              id="saveEditContactBtn"
+            >
+              <span class="material-symbols-rounded">save</span> Guardar Cambios
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 4: MAPA EN PANTALLA COMPLETA (VISTA EXPANDIDA CON ZOOM) -->
+    <div class="modal-backdrop modal-backdrop-map" id="mapModalBackdrop">
+      <div class="modal-card modal-card-fullscreen">
+        <div class="modal-header">
+          <h3>
+            <span class="material-symbols-rounded">map</span> Mapa Interactivo
+            &bull; Vista Expandida
+          </h3>
+          <div class="modal-header-controls">
+            <button
+              class="icon-btn"
+              id="modalRecenterGpsBtn"
+              title="Re-centrar en mi ubicación GPS"
+            >
+              <span class="material-symbols-rounded">my_location</span>
+            </button>
+            <button class="modal-close-btn" id="closeMapModalBtn">
+              &times;
+            </button>
+          </div>
+        </div>
+        <div class="modal-body modal-body-map">
+          <div id="modalMap" class="leaflet-map-container"></div>
+          <div class="location-floating-card modal-location-card">
+            <span class="material-symbols-rounded pin-icon">location_on</span>
+            <div class="location-info">
+              <strong id="modalAddressText">Coordenadas en tiempo real</strong>
+              <small id="modalCoordsText">Lat: -- , Lng: --</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leaflet.js JS -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <!-- App JS -->
+    <script src="app.js"></script>
+  </body>
 </html>
