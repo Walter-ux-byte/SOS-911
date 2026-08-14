@@ -1209,7 +1209,7 @@ function renderSavedAccounts() {
       const acc = db[email];
       const initial = (acc.name ? acc.name.charAt(0) : "U").toUpperCase();
       return `
-      <div class="account-chip" data-email="${email}">
+      <div class="account-chip" data-email="${email}" title="Toca para iniciar sesión de inmediato">
         <div class="account-chip-main">
           <div class="account-chip-icon">${initial}</div>
           <div class="account-chip-info">
@@ -1217,9 +1217,12 @@ function renderSavedAccounts() {
             <span class="account-chip-email">${email}</span>
           </div>
         </div>
-        <button type="button" class="account-chip-remove" title="Quitar cuenta de este dispositivo" data-remove="${email}">
-          <span class="material-symbols-rounded" style="font-size: 1.1rem;">close</span>
-        </button>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="material-symbols-rounded" style="font-size:1.15rem; color:var(--accent-blue);" title="Iniciar Sesión Rápido">login</span>
+          <button type="button" class="account-chip-remove" title="Quitar cuenta de este dispositivo" data-remove="${email}">
+            <span class="material-symbols-rounded" style="font-size: 1.1rem;">close</span>
+          </button>
+        </div>
       </div>
     `;
     })
@@ -1229,14 +1232,27 @@ function renderSavedAccounts() {
     chip.addEventListener("click", (e) => {
       if (e.target.closest(".account-chip-remove")) return;
       const email = chip.getAttribute("data-email");
-      const emailInput = $("loginEmail");
-      const pwdInput = $("loginPassword");
-      if (emailInput) {
-        emailInput.value = email;
-        const validBadge = $("loginEmailValid");
-        if (validBadge) validBadge.classList.remove("hidden");
+      const db = getAccountsDB();
+      const account = db[email];
+
+      if (!account || !account.registered) {
+        showToast("❌ No se encontraron datos para esta cuenta.", "#DC2626");
+        return;
       }
-      if (pwdInput) pwdInput.focus();
+
+      // Iniciar sesión directa con 1 solo toque
+      saveAuthUser({ ...account, isLoggedIn: true });
+
+      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+      state.user.name = account.name || "Usuario";
+      state.user.email = account.email;
+      saveState();
+
+      showToast(
+        `✅ ¡Bienvenido de nuevo, ${account.name || "Usuario"}!`,
+        "#16A34A",
+      );
+      dismissAuth();
     });
   });
 
