@@ -988,7 +988,21 @@ function initProfileModal() {
       $$(".form-error-msg").forEach((el) => (el.textContent = ""));
       let hasError = false;
 
-      // Obtener valores
+      // Obtener valores de Tab 1 (Datos Personales)
+      const userName = $("userNameInput")
+        ? $("userNameInput").value.trim()
+        : state.user?.name || "";
+      const userPhone = $("userPhoneInput")
+        ? $("userPhoneInput").value.trim()
+        : state.user?.phone || "";
+      const userEmail = $("userEmailInput")
+        ? $("userEmailInput").value.trim()
+        : state.user?.email || "";
+      const userAddress = $("userAddressInput")
+        ? $("userAddressInput").value.trim()
+        : state.user?.address || "";
+
+      // Obtener valores médicos y de contacto
       const age = $("profileAge") ? $("profileAge").value.trim() : "";
       const bloodType = $("profileBloodType")
         ? $("profileBloodType").value
@@ -1037,8 +1051,12 @@ function initProfileModal() {
 
       if (hasError) return; // Detener si hay errores
 
-      // Solo actualizar campos médicos y de contacto
+      // Actualizar perfil de usuario con los datos editados directamente en Tab 1
       state.user = Object.assign(state.user || {}, {
+        name: userName,
+        phone: userPhone,
+        email: userEmail,
+        address: userAddress,
         age: age,
         bloodType: bloodType,
         condition: $("profileCondition")
@@ -1063,8 +1081,23 @@ function initProfileModal() {
       });
 
       saveState();
+
+      if ($("userEmailInput"))
+        $("userEmailInput").value = state.user.email || "";
+
+      // Actualizar en base de datos local si existe
+      const authUser = getAuthUser();
+      if (authUser && authUser.email) {
+        const db = getAccountsDB();
+        if (db[authUser.email]) {
+          db[authUser.email].phone = state.user.phone;
+          db[authUser.email].address = state.user.address;
+          saveAccountsDB(db);
+        }
+      }
+
       backdrop.classList.remove("open");
-      showToast("✅ Cambios en la Ficha Médica guardados", "#16A34A");
+      showToast("✅ Cambios en el Perfil y Ficha Médica guardados", "#16A34A");
     });
   }
 }
@@ -1354,11 +1387,9 @@ function initAuthScreen() {
   const authUser = getAuthUser();
   if (authUser && authUser.registered && authUser.isLoggedIn !== false) {
     dismissAuth();
-    return;
+  } else if (authScreen) {
+    authScreen.classList.remove("hidden");
   }
-
-  // Mostrar pantalla de auth
-  if (authScreen) authScreen.classList.remove("hidden");
 
   // Tabs switch
   function switchTab(activeTab, activeForm, inactiveTab, inactiveForm) {

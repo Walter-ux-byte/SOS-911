@@ -788,61 +788,46 @@
 
             <!-- PESTAÑA 1: DATOS PERSONALES -->
             <div id="tabPersonal" class="profile-tab-content">
-              <div class="profile-locked-notice">
-                <span class="material-symbols-rounded">lock</span>
-                Datos de registro. Edita desde Configuración de Cuenta.
-              </div>
-
               <div class="form-grid">
                 <div class="form-group">
                   <label for="userNameInput">
-                    <span class="material-symbols-rounded field-lock-icon"
-                      >lock</span
+                    <span class="material-symbols-rounded form-icon"
+                      >person</span
                     >
-                    Nombre
+                    Nombre Completo
                   </label>
                   <input
                     type="text"
                     id="userNameInput"
                     placeholder="Ej. Dr. Carlos Mendoza"
-                    readonly
-                    tabindex="-1"
                   />
                 </div>
                 <div class="form-group">
                   <label for="userPhoneInput">
-                    <span class="material-symbols-rounded field-lock-icon"
-                      >lock</span
-                    >
+                    <span class="material-symbols-rounded form-icon">call</span>
                     Teléfono
                   </label>
                   <input
                     type="tel"
                     id="userPhoneInput"
                     placeholder="+593 98 765 4321"
-                    readonly
-                    tabindex="-1"
                   />
                 </div>
                 <div class="form-group col-span-2">
                   <label for="userEmailInput">
-                    <span class="material-symbols-rounded field-lock-icon"
-                      >lock</span
-                    >
+                    <span class="material-symbols-rounded form-icon">mail</span>
                     Correo Electrónico
                   </label>
                   <input
                     type="email"
                     id="userEmailInput"
                     placeholder="usuario@sos911.app"
-                    readonly
-                    tabindex="-1"
                   />
                 </div>
                 <div class="form-group col-span-2">
                   <label for="userAddressInput">
-                    <span class="material-symbols-rounded field-lock-icon"
-                      >lock</span
+                    <span class="material-symbols-rounded form-icon"
+                      >home_pin</span
                     >
                     Dirección Principal
                   </label>
@@ -850,8 +835,6 @@
                     type="text"
                     id="userAddressInput"
                     placeholder="Ej. Av. Amazonas N24-15 y Colón"
-                    readonly
-                    tabindex="-1"
                   />
                 </div>
               </div>
@@ -983,7 +966,13 @@
 
             <!-- PESTAÑA 3: CONTACTO Y AJUSTES -->
             <div id="tabSettings" class="profile-tab-content hidden">
-              <div class="profile-section-label">Contacto de Emergencia</div>
+              <div class="profile-section-label">
+                <span class="material-symbols-rounded form-icon"
+                  >contact_phone</span
+                >
+                Contacto de Emergencia
+              </div>
+
               <div class="form-grid">
                 <div class="form-group">
                   <label for="profileEcName">Nombre</label>
