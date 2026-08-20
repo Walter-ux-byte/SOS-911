@@ -486,6 +486,7 @@ body {
 }
 
 .main-panic-btn {
+  position: relative;
   width: 210px;
   height: 210px;
   border-radius: 50%;
@@ -1236,12 +1237,14 @@ html[data-theme="light"] .btn-logout:hover {
   border-radius: var(--radius-lg);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
   overflow: hidden;
-  transform: translateY(20px);
-  transition: transform 0.25s ease;
+  transform: scale(0.95);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .modal-backdrop.open .modal-card {
-  transform: translateY(0);
+  transform: scale(1);
+  opacity: 1;
 }
 
 .modal-header {
@@ -1975,7 +1978,7 @@ input[readonly] {
 }
 
 .profile-tab-content {
-  animation: fadeIn 0.3s ease;
+  animation: tabFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .profile-tab-content.hidden {
@@ -2016,4 +2019,171 @@ html[data-theme="light"] .profile-tab {
 }
 html[data-theme="light"] .profile-tab.active {
   color: #ffffff;
+}
+
+
+/* ============================================================
+   UX PREMIUM: ANIMACIONES Y ESTADOS DE CARGA
+   ============================================================ */
+/* 1. Transiciones y Feedback Táctil */
+.btn, .icon-btn, .category-card, .action-card, .nav-item, .account-chip, .profile-tab, .auth-tab {
+  transition: all 200ms ease-in-out !important;
+}
+
+.btn:hover, .category-card:hover, .action-card:hover, .auth-tab:not(.active):hover, .profile-tab:not(.active):hover {
+  transform: scale(1.02);
+}
+
+.btn:active, .icon-btn:active, .category-card:active, .action-card:active, .nav-item:active, .account-chip:active, .auth-tab:active, .profile-tab:active {
+  transform: scale(0.95);
+}
+
+/* 2. Loaders y Skeletons */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin-loader {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton-loader {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--border-color) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: var(--radius-md);
+  height: 60px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+html[data-theme="light"] .skeleton-loader {
+  background: linear-gradient(90deg, #f8fafc 25%, #e2e8f0 50%, #f8fafc 75%);
+  background-size: 200% 100%;
+}
+
+/* 3. Animación de Pestañas */
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tab-pane {
+  animation: tabFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* 4. Pulse Ring para Botón de Pánico */
+@keyframes pulseRingContinuous {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  100% { box-shadow: 0 0 0 25px rgba(220, 38, 38, 0); }
+}
+.main-panic-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: pulseRingContinuous 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+
+
+/* ============================================================
+   FICHA MÉDICA TRANSMITIDA — GRID 3 COLUMNAS (v2)
+   ============================================================ */
+.medical-banner-card {
+  margin: 0 12px 12px;
+  background: rgba(15, 23, 42, 0.90);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  animation: tabFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+html[data-theme="light"] .medical-banner-card {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.mbc-icon-svg {
+  color: #f87171;
+  flex-shrink: 0;
+}
+html[data-theme="light"] .mbc-icon-svg {
+  color: #dc2626;
+}
+
+/* Grid horizontal de 3 celdas simétricas */
+.mbc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+}
+
+.mbc-cell {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+}
+.mbc-cell:last-child { border-right: none; }
+html[data-theme="light"] .mbc-cell {
+  border-right-color: #e2e8f0;
+}
+
+.mbc-cell-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.mbc-cell-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.3;
+}
+html[data-theme="light"] .mbc-cell-value {
+  color: #1e293b;
+}
+
+/* Pastilla roja de tipo de sangre */
+.blood-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: white;
+  font-weight: 800;
+  font-size: 1.1rem;
+  padding: 4px 14px;
+  border-radius: 100px;
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.35);
+  width: fit-content;
+}
+
+/* ============================================================
+   QUICK LOGIN CARD — Acceso Rápido 1 Clic
+   ============================================================ */
+.quick-login-card:hover {
+  background: rgba(255,255,255,0.08) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important;
+}
+html[data-theme="light"] .quick-login-card {
+  background: white !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+}
+html[data-theme="light"] .quick-login-card:hover {
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
 }

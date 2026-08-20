@@ -356,28 +356,22 @@
       <!-- TARJETA MÉDICA EN EMERGENCIA (VISIBLE EN HOME DURANTE ALERTA) -->
       <div id="medicalBannerCard" class="medical-banner-card hidden">
         <div class="mbc-header">
-          <span class="material-symbols-rounded mbc-icon"
-            >medical_information</span
-          >
+          <svg class="mbc-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <strong>Ficha Médica Transmitida</strong>
           <button class="mbc-close" id="closeMedicalBanner">&times;</button>
         </div>
-        <div class="mbc-body">
-          <div class="mbc-row">
-            <span class="mbc-label">🩸 Sangre</span>
-            <span class="mbc-value" id="mbcBlood">—</span>
+        <div class="mbc-grid">
+          <div class="mbc-cell mbc-cell-blood">
+            <span class="mbc-cell-label">🩸 Sangre</span>
+            <span class="blood-pill" id="mbcBlood">—</span>
           </div>
-          <div class="mbc-row">
-            <span class="mbc-label">⚕️ Condición</span>
-            <span class="mbc-value" id="mbcCondition">—</span>
+          <div class="mbc-cell">
+            <span class="mbc-cell-label">⚕️ Condición</span>
+            <span class="mbc-cell-value" id="mbcCondition">—</span>
           </div>
-          <div class="mbc-row">
-            <span class="mbc-label">⚠️ Alergias</span>
-            <span class="mbc-value" id="mbcAllergies">—</span>
-          </div>
-          <div class="mbc-row">
-            <span class="mbc-label">📞 Contacto</span>
-            <span class="mbc-value" id="mbcContact">—</span>
+          <div class="mbc-cell">
+            <span class="mbc-cell-label">⚠️ Alergias</span>
+            <span class="mbc-cell-value" id="mbcAllergies">—</span>
           </div>
         </div>
       </div>
@@ -966,34 +960,7 @@
 
             <!-- PESTAÑA 3: CONTACTO Y AJUSTES -->
             <div id="tabSettings" class="profile-tab-content hidden">
-              <div class="profile-section-label">
-                <span class="material-symbols-rounded form-icon"
-                  >contact_phone</span
-                >
-                Contacto de Emergencia
-              </div>
 
-              <div class="form-grid">
-                <div class="form-group">
-                  <label for="profileEcName">Nombre</label>
-                  <input
-                    type="text"
-                    id="profileEcName"
-                    placeholder="Ej. Ana García"
-                  />
-                </div>
-                <div class="form-group">
-                  <label for="profileEcPhone"
-                    >Teléfono <span class="field-required">*</span></label
-                  >
-                  <input
-                    type="tel"
-                    id="profileEcPhone"
-                    placeholder="+593 99 000 0000"
-                  />
-                  <span class="form-error-msg" id="err-profileEcPhone"></span>
-                </div>
-              </div>
 
               <div class="profile-section-label" style="margin-top: 16px">
                 <span class="material-symbols-rounded form-icon"
@@ -1193,6 +1160,8 @@
       crossorigin=""
     ></script>
     <!-- App JS -->
+     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/motion@11.11.13/dist/motion.js"></script>
   </body>
 </html>

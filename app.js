@@ -1,14 +1,26 @@
 // ============================================================
-//  SOS911 — app.js  |  Vanilla JS + Leaflet.js Mapa Dinámico
+//  SOS911 — app.js  |  Vanilla JS + Leaflet.js + SUPABASE
+//  Este archivo reemplaza localStorage por Supabase (Auth + DB)
 // ============================================================
+
+// ════════════════════════════════════════════════════════════
+//  🔌 CONFIGURACIÓN DE SUPABASE — COLOCA AQUÍ TUS CREDENCIALES
+//  Las obtienes en: Supabase Dashboard > Project Settings > API
+// ════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://xdyzbhbphbaxpcnubkhl.supabase.co"; // <-- TU SUPABASE URL AQUÍ
+const SUPABASE_ANON_KEY = "sb_publishable__zpxi2NHza9g_coifhctiw_i8jZkFJD";     // <-- TU ANON PUBLIC KEY AQUÍ
+
+// El objeto global `supabase` lo crea el <script> del CDN que agregas en el HTML.
+// Lo renombramos a `sb` para no chocar con ese namespace global.
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const DEFAULT_CONTACTS = [];
 
 const DEFAULT_PROFILE = {
   name: "Usuario SOS911",
-  phone: "+593 99 000 1122",
-  email: "contacto@sos911.app",
-  address: "Centro Urbano Principal",
+  phone: "",
+  email: "",
+  address: "",
   age: "",
   bloodType: "",
   condition: "",
@@ -20,22 +32,24 @@ const DEFAULT_PROFILE = {
   emergencyContactPhone: "",
 };
 
-const DEFAULT_STATE = {
+// ── ESTADO GLOBAL (ahora solo es una caché en memoria; la fuente
+//    de verdad vive en las tablas de Supabase) ─────────────────
+let state = {
   status: "SECURE", // 'SECURE' | 'EMERGENCY'
-  incident: null, // { id, type, name, icon, ts, lat, lng }
-  logs: [],
-  user: DEFAULT_PROFILE,
+  incident: null, // { id (uuid de Supabase), type, name, icon, ts, lat, lng }
+  user: JSON.parse(JSON.stringify(DEFAULT_PROFILE)),
 };
 
-// ── ESTADO GLOBAL ─────────────────────────────────────────────
-let state = {};
+let contactsCache = []; // Caché local de la tabla `contacts` del usuario actual
+let logsCache = []; // Caché local de emergencias resueltas (tabla `emergencies`)
+
 let leafletMap = null;
 let modalLeafletMap = null;
 let userMarker = null;
 let modalUserMarker = null;
 let policeMarker = null;
 let modalPoliceMarker = null;
-let userCoords = { lat: -0.180653, lng: -78.467838 }; // Coordenadas iniciales (Quito / Ecuador por defecto)
+let userCoords = { lat: -0.180653, lng: -78.467838 }; // Quito, Ecuador por defecto
 let watchPositionId = null;
 
 // Temporizadores y Hold
@@ -97,44 +111,300 @@ function showToast(msg, color = "#2563EB", duration = 3500) {
   }, duration);
 }
 
-// ── LOCALSTORAGE ──────────────────────────────────────────────
-function loadState() {
+// ── PREFERENCIAS LOCALES (tema/fuente) ─────────────────────────
+// Esto NO son datos de la app (perfil, contactos, emergencias), solo
+// preferencias visuales del dispositivo, así que se quedan en localStorage.
+const PREFS_KEY = "sos911_app_prefs";
+const FONT_STEPS = [87.5, 100, 112.5, 125, 137.5];
+const DEFAULT_FONT_INDEX = 1;
+
+function loadPrefs() {
   try {
-    const stored = localStorage.getItem("sos911_app_state");
-    state = stored
-      ? JSON.parse(stored)
-      : JSON.parse(JSON.stringify(DEFAULT_STATE));
-    // Asegurar que user tenga todos los campos nuevos
-    if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-    state.user = Object.assign({}, DEFAULT_PROFILE, state.user);
-  } catch (_) {
-    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-  }
-
-  // Cargar contactos
-  const contactsStored = localStorage.getItem("sos911_contacts");
-  if (!contactsStored) {
-    localStorage.setItem("sos911_contacts", JSON.stringify(DEFAULT_CONTACTS));
+    return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
+  } catch {
+    return {};
   }
 }
-
-function saveState() {
-  localStorage.setItem("sos911_app_state", JSON.stringify(state));
+function savePrefs(prefs) {
+  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
 }
 
-function getContacts() {
-  try {
-    const raw = localStorage.getItem("sos911_contacts");
-    return raw ? JSON.parse(raw) : DEFAULT_CONTACTS;
-  } catch (_) {
-    return DEFAULT_CONTACTS;
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — MAPEO DE FILAS (snake_case DB → camelCase UI)
+// ════════════════════════════════════════════════════════════
+function mapProfileRowToState(row) {
+  if (!row) return JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  // Soporta columnas en español (Supabase real) con fallback a inglés
+  return {
+    name:                 row.nombre                   || row.name                   || "",
+    phone:                row.telefono                 || row.phone                  || "",
+    email:                row.email                                                  || "",
+    address:              row.direccion                || row.address                || "",
+    age:                  row.edad                     ?? row.age                   ?? "",
+    bloodType:            row["tipo de sangre"]         || row.blood_type             || "",
+    condition:            row.enfermedad               || row.condition              || "",
+    allergies:            row.alergias                 || row.allergies              || "",
+    medication:           row.medicacion               || row.medication             || "",
+    insurance:            row.seguro                   || row.insurance              || "",
+    notes:                row.notas                    || row.notes                  || "",
+    emergencyContactName: row["contacto de emergencia"]|| row.emergency_contact_name || "",
+    emergencyContactPhone:row.telefono_emergencia      || row.emergency_contact_phone|| "",
+    onboardingDone:       !!(row.onboarding_done),
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — PERFIL (tabla `profiles`)
+// ════════════════════════════════════════════════════════════
+
+// Carga (o crea si no existe) la fila de perfil del usuario autenticado.
+async function loadUserProfile() {
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) return;
+
+  let { data: profile, error } = await sb
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase (profiles select):", error);
   }
+
+  if (!profile) {
+    // Primera vez del usuario: creamos su fila de perfil vacía
+    const { data: created, error: insertErr } = await sb
+      .from("profiles")
+      .insert({
+        id: user.id,
+        email: user.email,
+        name: user.user_metadata?.full_name || "Usuario SOS911",
+      })
+      .select()
+      .single();
+    if (insertErr) console.error("Supabase (profiles insert):", insertErr);
+    profile = created;
+  }
+
+  state.user = mapProfileRowToState(profile);
 }
 
-function saveContacts(contacts) {
-  localStorage.setItem("sos911_contacts", JSON.stringify(contacts));
-  renderContacts();
+// Guarda (upsert) campos del perfil en Supabase. `fields` usa nombres
+// de columna en snake_case, ej: { blood_type: "O+", age: 28 }
+async function saveProfileToSupabase(fields) {
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) {
+    showToast("⚠️ Debes iniciar sesión para guardar tu perfil.", "#D97706");
+    return null;
+  }
+
+  const { data, error } = await sb
+    .from("profiles")
+    .upsert({ id: user.id, updated_at: new Date().toISOString(), ...fields })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Supabase (profiles upsert) ERROR:", error);
+    showToast("❌ Error guardando el perfil: " + error.message, "#DC2626");
+    return null;
+  }
+  console.log("Supabase (profiles upsert) OK — fila guardada:", data);
+  return data;
+}
+
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — CONTACTOS DE CONFIANZA (tabla `contacts`)
+// ════════════════════════════════════════════════════════════
+
+// Vuelve a traer los contactos del usuario desde Supabase y re-renderiza.
+async function refreshContacts() {
+  const container1 = document.getElementById('contactsListContainer');
+  if (container1) { container1.innerHTML = '<div class="skeleton-loader"></div><div class="skeleton-loader"></div>'; }
+  await new Promise(r => setTimeout(r, 800)); // Premium UX Loading State
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) {
+    contactsCache = [];
+    renderContactsUI();
+    updateHomeContactCount();
+    return;
+  }
+
+  const { data, error } = await sb
+    .from("contacts")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Supabase (contacts select):", error);
+    showToast("❌ Error cargando tus contactos", "#DC2626");
+    contactsCache = [];
+  } else {
+    contactsCache = data;
+  }
+
+  renderContactsUI();
   updateHomeContactCount();
+}
+
+function renderContactsUI() {
+  const container = $("contactsListContainer");
+  if (!container) return;
+
+  if (contactsCache.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 13px;">
+        No tienes contactos de confianza registrados.<br>Agrega uno en el formulario de abajo.
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = contactsCache
+    .map(
+      (c) => `
+    <div class="contact-item">
+      <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
+      <div class="contact-details">
+        <strong>${escHtml(c.name)}</strong>
+        <span>${escHtml(c.phone)} ${c.relation ? "• " + escHtml(c.relation) : ""}</span>
+      </div>
+      <div class="contact-actions">
+        <button class="icon-action-btn" onclick="openEditContact(${c.id})" title="Editar">
+          <span class="material-symbols-rounded">edit</span>
+        </button>
+        <button class="icon-action-btn delete" onclick="deleteContact(${c.id})" title="Eliminar">
+          <span class="material-symbols-rounded">delete</span>
+        </button>
+      </div>
+    </div>
+  `,
+    )
+    .join("");
+}
+
+function initContactForm() {
+  const form = $("addContactForm");
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameIn = $("contactNameInput");
+    const phoneIn = $("contactPhoneInput");
+    const relIn = $("contactRelationInput");
+
+    const name = nameIn?.value.trim();
+    const phone = phoneIn?.value.trim();
+    const relation = relIn?.value.trim();
+
+    if (!name || !phone) {
+      showToast("⚠️ Ingrese nombre y teléfono", "#D97706");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+    if (!user) {
+      showToast("⚠️ Debes iniciar sesión", "#D97706");
+      return;
+    }
+
+    // 🔌 Insertar el nuevo contacto en Supabase
+    const { error } = await sb
+      .from("contacts")
+      .insert({ user_id: user.id, name, phone, relation });
+
+    if (error) {
+      console.error("Supabase (contacts insert):", error);
+      showToast("❌ Error guardando el contacto", "#DC2626");
+      return;
+    }
+
+    await refreshContacts();
+
+    if (nameIn) nameIn.value = "";
+    if (phoneIn) phoneIn.value = "";
+    if (relIn) relIn.value = "";
+
+    showToast("✅ Contacto guardado con éxito", "#16A34A");
+  });
+}
+
+// Expuestas en window porque se llaman desde onclick="" en HTML generado
+window.deleteContact = async function (id) {
+  // 🔌 Eliminar contacto en Supabase (RLS garantiza que solo borra los suyos)
+  const { error } = await sb.from("contacts").delete().eq("id", id);
+  if (error) {
+    console.error("Supabase (contacts delete):", error);
+    showToast("❌ No se pudo eliminar el contacto", "#DC2626");
+    return;
+  }
+  await refreshContacts();
+  showToast("Contacto eliminado", "#475569");
+};
+
+window.openEditContact = function (id) {
+  const c = contactsCache.find((item) => item.id === id);
+  if (!c) return;
+
+  $("editContactId").value = c.id;
+  $("editContactName").value = c.name;
+  $("editContactPhone").value = c.phone;
+  $("editContactRelation").value = c.relation || "";
+
+  $("editContactModal").classList.add("open");
+};
+
+function initEditContactModal() {
+  const modal = $("editContactModal");
+  const closeBtn = $("closeEditContactModal");
+  const form = $("editContactForm");
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => modal.classList.remove("open"));
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = Number($("editContactId").value);
+      const name = $("editContactName").value.trim();
+      const phone = $("editContactPhone").value.trim();
+      const relation = $("editContactRelation").value.trim();
+
+      // 🔌 Actualizar contacto en Supabase
+      const { error } = await sb
+        .from("contacts")
+        .update({ name, phone, relation })
+        .eq("id", id);
+
+      if (error) {
+        console.error("Supabase (contacts update):", error);
+        showToast("❌ No se pudo actualizar el contacto", "#DC2626");
+        return;
+      }
+
+      await refreshContacts();
+      modal.classList.remove("open");
+      showToast("✅ Contacto actualizado", "#16A34A");
+    });
+  }
+}
+
+function updateHomeContactCount() {
+  const count = contactsCache.length;
+  if ($("homeContactCount")) {
+    $("homeContactCount").textContent =
+      `${count} contacto${count !== 1 ? "s" : ""} listo${count !== 1 ? "s" : ""}`;
+  }
 }
 
 // ── NAVEGACIÓN Y PESTAÑAS ─────────────────────────────────────
@@ -167,11 +437,9 @@ function initNav() {
   if ($("bannerMapBtn")) {
     $("bannerMapBtn").addEventListener("click", () => navigateTo("view-map"));
   }
-
   if ($("myLocationBtn")) {
     $("myLocationBtn").addEventListener("click", () => navigateTo("view-map"));
   }
-
   if ($("quickContactsBtn")) {
     $("quickContactsBtn").addEventListener("click", () =>
       navigateTo("view-contacts"),
@@ -179,7 +447,7 @@ function initNav() {
   }
 }
 
-// ── MAPA INTERACTIVO LEAFLET Y GPS ────────────────────────────
+// ── MAPA INTERACTIVO LEAFLET Y GPS (sin cambios, no usa datos de Supabase) ──
 function openMapModal() {
   const backdrop = $("mapModalBackdrop");
   if (!backdrop) return;
@@ -251,7 +519,6 @@ function initLeafletMap() {
       zoomControl: false,
     });
 
-    // Capa de Mapa Oscuro (CartoDB Dark Matter / OpenStreetMap)
     L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
       {
@@ -261,7 +528,6 @@ function initLeafletMap() {
       },
     ).addTo(leafletMap);
 
-    // Marcador de Ubicación del Usuario
     const userIcon = L.divIcon({
       className: "user-gps-marker",
       html: `<div style="background:#EF4444; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 15px #EF4444; animation: pulseHeart 1.5s infinite;"></div>`,
@@ -278,7 +544,6 @@ function initLeafletMap() {
       )
       .openPopup();
 
-    // Doble Clic para Expandir
     mapContainer.addEventListener("dblclick", (e) => {
       e.preventDefault();
       openMapModal();
@@ -293,11 +558,9 @@ function initLeafletMap() {
       openMapModal();
     });
   }
-
   if (closeBtn) {
     closeBtn.addEventListener("click", () => closeMapModal());
   }
-
   if (recenterBtn) {
     recenterBtn.addEventListener("click", () => {
       if (modalLeafletMap && userCoords) {
@@ -321,26 +584,17 @@ function startGPSTracking() {
       const { latitude: lat, longitude: lng } = pos.coords;
       userCoords = { lat, lng };
 
-      if (userMarker) {
-        userMarker.setLatLng([lat, lng]);
-      }
-      if (modalUserMarker) {
-        modalUserMarker.setLatLng([lat, lng]);
-      }
-      if (leafletMap) {
-        leafletMap.panTo([lat, lng]);
-      }
+      if (userMarker) userMarker.setLatLng([lat, lng]);
+      if (modalUserMarker) modalUserMarker.setLatLng([lat, lng]);
+      if (leafletMap) leafletMap.panTo([lat, lng]);
 
-      if ($("liveCoordsText")) {
+      if ($("liveCoordsText"))
         $("liveCoordsText").textContent =
           `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
-      }
-      if ($("modalCoordsText")) {
+      if ($("modalCoordsText"))
         $("modalCoordsText").textContent =
           `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
-      }
 
-      // Geocodificación inversa simulada / real con OSM Nominatim
       fetchAddressFromCoords(lat, lng);
     },
     (err) => {
@@ -376,7 +630,6 @@ function fetchAddressFromCoords(lat, lng) {
     });
 }
 
-// ── COMPARTIR UBICACIÓN ──────────────────────────────────────
 function initShareLocation() {
   const shareBtn = $("shareLocationBtn");
   if (!shareBtn) return;
@@ -408,7 +661,6 @@ const HOLD_STEP = (HOLD_INTERVAL_MS / HOLD_DURATION_MS) * 100;
 
 function initPanicButtons() {
   $$(".panic-btn").forEach((btn) => {
-    // Touch Events
     btn.addEventListener(
       "touchstart",
       (e) => {
@@ -421,7 +673,6 @@ function initPanicButtons() {
     btn.addEventListener("touchcancel", cancelHold);
     btn.addEventListener("touchmove", cancelHold);
 
-    // Mouse Events
     btn.addEventListener("mousedown", () => startHold(btn));
     btn.addEventListener("mouseup", cancelHold);
     btn.addEventListener("mouseleave", cancelHold);
@@ -495,15 +746,46 @@ function finishHold() {
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
 
+    // No usamos await aquí a propósito: la UI se actualiza de inmediato
+    // (ver dentro de activateEmergency) y el guardado en Supabase ocurre
+    // en segundo plano para no bloquear la respuesta al usuario.
     activateEmergency(type, name, icon);
   }
 }
 
-// ── ACTIVACIÓN Y DESPACHO DE EMERGENCIA ───────────────────────
-function activateEmergency(type, name, icon) {
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — EMERGENCIAS (tabla `emergencies`)
+// ════════════════════════════════════════════════════════════
+
+// Aplica todo el estado visual de "emergencia activa". Se usa tanto al
+// crear una alerta nueva como al reanudar una alerta activa tras recargar.
+function applyEmergencyUIOnly(incident) {
   state.status = "EMERGENCY";
-  state.incident = {
-    id: `INC-${Date.now()}`,
+  state.incident = incident;
+
+  if ($("emergencyBanner")) $("emergencyBanner").classList.remove("hidden");
+  if ($("ebTitle"))
+    $("ebTitle").textContent = `⚡ ALERTA ACTIVADA: ${incident.name.toUpperCase()}`;
+  if ($("statusLabel")) $("statusLabel").textContent = "¡EMERGENCIA ACTIVA!";
+  if ($("statusDot")) $("statusDot").className = "status-dot-mini red";
+  if ($("cancelEmergencyBtn"))
+    $("cancelEmergencyBtn").classList.remove("hidden");
+  if ($("dispatchSection")) $("dispatchSection").style.display = "block";
+
+  showMedicalBannerCard();
+
+  emergencySeconds = 0;
+  updateEmergencyTimerText();
+  if (emergencyTimer) clearInterval(emergencyTimer);
+  emergencyTimer = setInterval(emergencyTick, 1000);
+
+  resetTimeline();
+}
+
+async function activateEmergency(type, name, icon) {
+  // 1. Actualizar la interfaz INMEDIATAMENTE (respuesta instantánea al usuario)
+  const incident = {
+    id: null, // se completa abajo con el id real de Supabase
     type,
     name,
     icon,
@@ -511,24 +793,8 @@ function activateEmergency(type, name, icon) {
     lat: userCoords.lat,
     lng: userCoords.lng,
   };
-  saveState();
+  applyEmergencyUIOnly(incident);
 
-  // Actualizar UI
-  if ($("emergencyBanner")) $("emergencyBanner").classList.remove("hidden");
-  if ($("ebTitle"))
-    $("ebTitle").textContent = `⚡ ALERTA ACTIVADA: ${name.toUpperCase()}`;
-  if ($("statusLabel")) $("statusLabel").textContent = "¡EMERGENCIA ACTIVA!";
-  if ($("statusDot")) {
-    $("statusDot").className = "status-dot-mini red";
-  }
-  if ($("cancelEmergencyBtn"))
-    $("cancelEmergencyBtn").classList.remove("hidden");
-  if ($("dispatchSection")) $("dispatchSection").style.display = "block";
-
-  // Mostrar tarjeta médica en Home
-  showMedicalBannerCard();
-
-  // Cambiar vista al mapa
   navigateTo("view-map");
   showToast(
     `🚨 ¡ALERTA DE ${name.toUpperCase()} TRANSMITIDA!`,
@@ -536,13 +802,6 @@ function activateEmergency(type, name, icon) {
     4000,
   );
 
-  // Iniciar Contador
-  emergencySeconds = 0;
-  updateEmergencyTimerText();
-  if (emergencyTimer) clearInterval(emergencyTimer);
-  emergencyTimer = setInterval(emergencyTick, 1000);
-
-  // Reiniciar timeline y simular notificaciones
   resetTimeline();
   simulateContactsNotified();
   addChatMsg(
@@ -550,7 +809,6 @@ function activateEmergency(type, name, icon) {
     `🚨 Alerta de ${name} generada en Lat: ${userCoords.lat.toFixed(4)}, Lng: ${userCoords.lng.toFixed(4)}.`,
   );
 
-  // Incluir ficha médica en el canal de despacho
   const u = state.user || {};
   if (u.bloodType || u.condition || u.allergies || u.emergencyContactName) {
     const medInfo = [
@@ -566,6 +824,35 @@ function activateEmergency(type, name, icon) {
       .join(" | ");
     addChatMsg("system", `📋 Ficha Médica del Ciudadano → ${medInfo}`);
   }
+
+  // 2. 🔌 Guardar el registro de la emergencia en Supabase (en segundo plano)
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { data, error } = await sb
+    .from("emergencies")
+    .insert({
+      user_id: user.id,
+      type,
+      name,
+      icon,
+      status: "active",
+      lat: userCoords.lat,
+      lng: userCoords.lng,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Supabase (emergencies insert):", error);
+    showToast("⚠️ No se pudo registrar la alerta en el servidor", "#D97706");
+    return;
+  }
+
+  // Guardamos el ID real de Supabase; lo necesitamos para poder resolverla luego
+  state.incident.id = data.id;
 }
 
 function emergencyTick() {
@@ -665,13 +952,12 @@ function simulateContactsNotified() {
   const container = $("notifiedContactsList");
   if (!container) return;
 
-  const contacts = getContacts();
-  if (contacts.length === 0) {
+  if (contactsCache.length === 0) {
     container.innerHTML = `<p class="empty-state-text">No tienes contactos registrados en tu Red de Apoyo.</p>`;
     return;
   }
 
-  container.innerHTML = contacts
+  container.innerHTML = contactsCache
     .map(
       (c) => `
     <div class="contact-item">
@@ -723,7 +1009,7 @@ function initResolutionModal() {
   }
 }
 
-function submitResolution() {
+async function submitResolution() {
   const textInput = $("rmText");
   const text = textInput ? textInput.value.trim() : "";
 
@@ -735,44 +1021,44 @@ function submitResolution() {
     return;
   }
 
-  const currentInc = state.incident || { type: "general", name: "Alerta" };
+  const currentInc = state.incident;
 
-  // Guardar en historial de logs
-  const logItem = {
-    id: currentInc.id || `INC-${Date.now()}`,
-    type: currentInc.type,
-    name: currentInc.name,
-    icon: currentInc.icon || "warning",
-    ts: currentInc.ts || new Date().toISOString(),
-    closedTs: new Date().toISOString(),
-    resolution: text,
-    lat: userCoords.lat,
-    lng: userCoords.lng,
-  };
+  // 🔌 Actualizar la emergencia en Supabase: pasa de 'active' a 'resolved'
+  if (currentInc && currentInc.id) {
+    const { error } = await sb
+      .from("emergencies")
+      .update({
+        status: "resolved",
+        resolution: text,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq("id", currentInc.id);
 
-  state.logs.unshift(logItem);
+    if (error) {
+      console.error("Supabase (emergencies update):", error);
+      showToast("❌ Error al guardar el cierre de la alerta", "#DC2626");
+      return;
+    }
+  }
+
   state.status = "SECURE";
   state.incident = null;
-  saveState();
 
-  // Limpiar temporizadores
   if (emergencyTimer) clearInterval(emergencyTimer);
   emergencyTimer = null;
   emergencySeconds = 0;
 
-  // Reset UI
   if ($("emergencyBanner")) $("emergencyBanner").classList.add("hidden");
   if ($("statusLabel")) $("statusLabel").textContent = "Sistema Seguro";
   if ($("statusDot")) $("statusDot").className = "status-dot-mini green";
   if ($("cancelEmergencyBtn")) $("cancelEmergencyBtn").classList.add("hidden");
   if ($("dispatchSection")) $("dispatchSection").style.display = "none";
-  // Ocultar tarjeta médica
   if ($("medicalBannerCard")) $("medicalBannerCard").classList.add("hidden");
 
   if ($("resolutionBackdrop")) $("resolutionBackdrop").classList.remove("open");
   if (textInput) textInput.value = "";
 
-  renderLogs();
+  await refreshLogs();
   showToast(
     "✅ Alerta finalizada. Incidente guardado en historial.",
     "#16A34A",
@@ -780,334 +1066,41 @@ function submitResolution() {
   navigateTo("view-history");
 }
 
-// ── GESTIÓN DE CONTACTOS (RF-02) ──────────────────────────────
-function renderContacts() {
-  const container = $("contactsListContainer");
-  if (!container) return;
-
-  const contacts = getContacts();
-  if (contacts.length === 0) {
-    container.innerHTML = `
-      <div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 13px;">
-        No tienes contactos de confianza registrados.<br>Agrega uno en el formulario de abajo.
-      </div>`;
+// Trae del servidor las emergencias ya resueltas del usuario (Historial)
+async function refreshLogs() {
+  const container2 = document.getElementById('logsList');
+  if (container2) { container2.innerHTML = '<div class="skeleton-loader" style="height: 80px;"></div><div class="skeleton-loader" style="height: 80px;"></div>'; }
+  await new Promise(r => setTimeout(r, 800)); // Premium UX Loading State
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) {
+    logsCache = [];
+    renderLogsUI();
     return;
   }
 
-  container.innerHTML = contacts
-    .map(
-      (c) => `
-    <div class="contact-item">
-      <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
-      <div class="contact-details">
-        <strong>${escHtml(c.name)}</strong>
-        <span>${escHtml(c.phone)} ${c.relation ? "• " + escHtml(c.relation) : ""}</span>
-      </div>
-      <div class="contact-actions">
-        <button class="icon-action-btn" onclick="openEditContact(${c.id})" title="Editar">
-          <span class="material-symbols-rounded">edit</span>
-        </button>
-        <button class="icon-action-btn delete" onclick="deleteContact(${c.id})" title="Eliminar">
-          <span class="material-symbols-rounded">delete</span>
-        </button>
-      </div>
-    </div>
-  `,
-    )
-    .join("");
+  const { data, error } = await sb
+    .from("emergencies")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "resolved")
+    .order("resolved_at", { ascending: false });
+
+  if (error) {
+    console.error("Supabase (emergencies history select):", error);
+    logsCache = [];
+  } else {
+    logsCache = data;
+  }
+  renderLogsUI();
 }
 
-function initContactForm() {
-  const form = $("addContactForm");
-  if (!form) return;
-
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const nameIn = $("contactNameInput");
-    const phoneIn = $("contactPhoneInput");
-    const relIn = $("contactRelationInput");
-
-    const name = nameIn?.value.trim();
-    const phone = phoneIn?.value.trim();
-    const relation = relIn?.value.trim();
-
-    if (!name || !phone) {
-      showToast("⚠️ Ingrese nombre y teléfono", "#D97706");
-      return;
-    }
-
-    const contacts = getContacts();
-    const newId = contacts.length
-      ? Math.max(...contacts.map((c) => c.id)) + 1
-      : 1;
-    contacts.push({ id: newId, name, phone, relation });
-
-    saveContacts(contacts);
-
-    if (nameIn) nameIn.value = "";
-    if (phoneIn) phoneIn.value = "";
-    if (relIn) relIn.value = "";
-
-    showToast("✅ Contacto guardado con éxito", "#16A34A");
-  });
-}
-
-window.deleteContact = function (id) {
-  const contacts = getContacts().filter((c) => c.id !== id);
-  saveContacts(contacts);
-  showToast("Contacto eliminado", "#475569");
-};
-
-window.openEditContact = function (id) {
-  const contacts = getContacts();
-  const c = contacts.find((item) => item.id === id);
-  if (!c) return;
-
-  $("editContactId").value = c.id;
-  $("editContactName").value = c.name;
-  $("editContactPhone").value = c.phone;
-  $("editContactRelation").value = c.relation || "";
-
-  $("editContactModal").classList.add("open");
-};
-
-function initEditContactModal() {
-  const modal = $("editContactModal");
-  const closeBtn = $("closeEditContactModal");
-  const form = $("editContactForm");
-
-  if (closeBtn) {
-    closeBtn.addEventListener("click", () => modal.classList.remove("open"));
-  }
-
-  if (form) {
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const id = Number($("editContactId").value);
-      const name = $("editContactName").value.trim();
-      const phone = $("editContactPhone").value.trim();
-      const relation = $("editContactRelation").value.trim();
-
-      const contacts = getContacts();
-      const idx = contacts.findIndex((c) => c.id === id);
-      if (idx !== -1) {
-        contacts[idx] = { id, name, phone, relation };
-        saveContacts(contacts);
-        modal.classList.remove("open");
-        showToast("✅ Contacto actualizado", "#16A34A");
-      }
-    });
-  }
-}
-
-function updateHomeContactCount() {
-  const count = getContacts().length;
-  if ($("homeContactCount")) {
-    $("homeContactCount").textContent =
-      `${count} contacto${count !== 1 ? "s" : ""} listo${count !== 1 ? "s" : ""}`;
-  }
-}
-
-// ── PERFIL DE USUARIO (RF-01) — EXTENDIDO ─────────────────────
-// ── PERFIL DE USUARIO (RF-01) — EXTENDIDO ─────────────────────
-function initProfileModal() {
-  const openBtn = $("openProfileBtn");
-  const closeBtn = $("closeProfileModal");
-  const backdrop = $("profileModalBackdrop");
-  const form = $("profileForm");
-
-  if (openBtn) {
-    openBtn.addEventListener("click", () => {
-      const u = state.user || DEFAULT_PROFILE;
-      if ($("userNameInput")) $("userNameInput").value = u.name || "";
-      if ($("userPhoneInput")) $("userPhoneInput").value = u.phone || "";
-      if ($("userEmailInput")) $("userEmailInput").value = u.email || "";
-      if ($("userAddressInput")) $("userAddressInput").value = u.address || "";
-
-      if ($("profileAge")) $("profileAge").value = u.age || "";
-      if ($("profileBloodType"))
-        $("profileBloodType").value = u.bloodType || "";
-      if ($("profileCondition"))
-        $("profileCondition").value = u.condition || "";
-      if ($("profileAllergies"))
-        $("profileAllergies").value = u.allergies || "";
-      if ($("profileMedication"))
-        $("profileMedication").value = u.medication || "";
-      if ($("profileInsurance"))
-        $("profileInsurance").value = u.insurance || "";
-      if ($("profileNotes")) $("profileNotes").value = u.notes || "";
-
-      if ($("profileEcName"))
-        $("profileEcName").value = u.emergencyContactName || "";
-      if ($("profileEcPhone"))
-        $("profileEcPhone").value = u.emergencyContactPhone || "";
-
-      // Clear errors
-      $$(".form-error-msg").forEach((el) => (el.textContent = ""));
-
-      backdrop.classList.add("open");
-    });
-  }
-
-  if (closeBtn) {
-    closeBtn.addEventListener("click", () => backdrop.classList.remove("open"));
-  }
-
-  const logoutBtn = $("logoutBtn");
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", () => {
-      logoutUser();
-    });
-  }
-
-  // Profile Tabs Logic
-  const pTabs = $$(".profile-tab");
-  const pContents = $$(".profile-tab-content");
-  if (pTabs.length > 0) {
-    pTabs.forEach((tab) => {
-      tab.addEventListener("click", () => {
-        // Deactivate all
-        pTabs.forEach((t) => t.classList.remove("active"));
-        pContents.forEach((c) => c.classList.add("hidden"));
-        // Activate clicked
-        tab.classList.add("active");
-        const targetId = tab.getAttribute("data-ptab");
-        const targetContent = $(targetId);
-        if (targetContent) {
-          targetContent.classList.remove("hidden");
-        }
-      });
-    });
-  }
-
-  if (form) {
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-
-      // Limpiar errores previos
-      $$(".form-error-msg").forEach((el) => (el.textContent = ""));
-      let hasError = false;
-
-      // Obtener valores de Tab 1 (Datos Personales)
-      const userName = $("userNameInput")
-        ? $("userNameInput").value.trim()
-        : state.user?.name || "";
-      const userPhone = $("userPhoneInput")
-        ? $("userPhoneInput").value.trim()
-        : state.user?.phone || "";
-      const userEmail = $("userEmailInput")
-        ? $("userEmailInput").value.trim()
-        : state.user?.email || "";
-      const userAddress = $("userAddressInput")
-        ? $("userAddressInput").value.trim()
-        : state.user?.address || "";
-
-      // Obtener valores médicos y de contacto
-      const age = $("profileAge") ? $("profileAge").value.trim() : "";
-      const bloodType = $("profileBloodType")
-        ? $("profileBloodType").value
-        : "";
-      const ecPhone = $("profileEcPhone")
-        ? $("profileEcPhone").value.trim()
-        : "";
-
-      // Validar Edad
-      if (!age) {
-        if ($("err-profileAge"))
-          $("err-profileAge").textContent = "La edad es obligatoria.";
-        hasError = true;
-      } else {
-        const ageNum = parseInt(age, 10);
-        if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
-          if ($("err-profileAge"))
-            $("err-profileAge").textContent =
-              "Ingresa una edad válida (1-120).";
-          hasError = true;
-        }
-      }
-
-      // Validar Tipo de Sangre
-      if (!bloodType) {
-        if ($("err-profileBloodType"))
-          $("err-profileBloodType").textContent =
-            "Selecciona un tipo de sangre.";
-        hasError = true;
-      }
-
-      // Validar Teléfono de Contacto (solo números, +, espacios o -, min 9 dígitos numéricos)
-      if (!ecPhone) {
-        if ($("err-profileEcPhone"))
-          $("err-profileEcPhone").textContent = "El teléfono es obligatorio.";
-        hasError = true;
-      } else {
-        const digits = ecPhone.replace(/\D/g, "");
-        if (digits.length < 9) {
-          if ($("err-profileEcPhone"))
-            $("err-profileEcPhone").textContent =
-              "Mínimo 9 dígitos requeridos.";
-          hasError = true;
-        }
-      }
-
-      if (hasError) return; // Detener si hay errores
-
-      // Actualizar perfil de usuario con los datos editados directamente en Tab 1
-      state.user = Object.assign(state.user || {}, {
-        name: userName,
-        phone: userPhone,
-        email: userEmail,
-        address: userAddress,
-        age: age,
-        bloodType: bloodType,
-        condition: $("profileCondition")
-          ? $("profileCondition").value.trim()
-          : state.user?.condition || "",
-        allergies: $("profileAllergies")
-          ? $("profileAllergies").value.trim()
-          : state.user?.allergies || "",
-        medication: $("profileMedication")
-          ? $("profileMedication").value.trim()
-          : state.user?.medication || "",
-        insurance: $("profileInsurance")
-          ? $("profileInsurance").value
-          : state.user?.insurance || "",
-        notes: $("profileNotes")
-          ? $("profileNotes").value.trim()
-          : state.user?.notes || "",
-        emergencyContactName: $("profileEcName")
-          ? $("profileEcName").value.trim()
-          : state.user?.emergencyContactName || "",
-        emergencyContactPhone: ecPhone,
-      });
-
-      saveState();
-
-      if ($("userEmailInput"))
-        $("userEmailInput").value = state.user.email || "";
-
-      // Actualizar en base de datos local si existe
-      const authUser = getAuthUser();
-      if (authUser && authUser.email) {
-        const db = getAccountsDB();
-        if (db[authUser.email]) {
-          db[authUser.email].phone = state.user.phone;
-          db[authUser.email].address = state.user.address;
-          saveAccountsDB(db);
-        }
-      }
-
-      backdrop.classList.remove("open");
-      showToast("✅ Cambios en el Perfil y Ficha Médica guardados", "#16A34A");
-    });
-  }
-}
-
-// ── HISTORIAL DE LOGS (RF-05) ─────────────────────────────────
-function renderLogs() {
+function renderLogsUI() {
   const container = $("logsList");
   if (!container) return;
 
-  if (!state.logs || state.logs.length === 0) {
+  if (!logsCache || logsCache.length === 0) {
     container.innerHTML = `
       <div style="text-align:center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;">
         No hay alertas o emergencias registradas en el historial.
@@ -1115,7 +1108,7 @@ function renderLogs() {
     return;
   }
 
-  container.innerHTML = state.logs
+  container.innerHTML = logsCache
     .map(
       (log) => `
     <div class="contact-item" style="align-items:flex-start;">
@@ -1124,13 +1117,48 @@ function renderLogs() {
       </div>
       <div class="contact-details">
         <strong>${escHtml(log.name)} — Finalizada</strong>
-        <span style="color:var(--accent-indigo); font-size:10px; margin:2px 0;">Fecha: ${new Date(log.closedTs || log.ts).toLocaleString()}</span>
+        <span style="color:var(--accent-indigo); font-size:10px; margin:2px 0;">Fecha: ${new Date(log.resolved_at || log.created_at).toLocaleString()}</span>
         <span style="color:white; margin-top:4px;"><b>Informe:</b> ${escHtml(log.resolution)}</span>
       </div>
     </div>
   `,
     )
     .join("");
+}
+
+// Busca si el usuario tiene una emergencia 'active' pendiente (p. ej. recargó la página)
+async function checkActiveEmergency() {
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { data, error } = await sb
+    .from("emergencies")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Supabase (checkActiveEmergency):", error);
+    return;
+  }
+
+  if (data) {
+    applyEmergencyUIOnly({
+      id: data.id,
+      type: data.type,
+      name: data.name,
+      icon: data.icon,
+      ts: data.created_at,
+      lat: data.lat,
+      lng: data.lng,
+    });
+    navigateTo("view-map");
+  }
 }
 
 // ── LLAMADA DIRECTA AL 911 ────────────────────────────────────
@@ -1177,171 +1205,37 @@ function initMedicalBannerClose() {
   }
 }
 
-// ── AUTENTICACIÓN (PANTALLA LOGIN / REGISTRO) ─────────────────
-/**
- * Hash simple (no criptográfico) para almacenamiento local.
- * Solo para verificación de identidad en localStorage.
- */
-function simpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return "H" + Math.abs(hash).toString(36);
-}
-
-function getAccountsDB() {
-  try {
-    const raw = localStorage.getItem("sos911_accounts_db");
-    return raw ? JSON.parse(raw) : {};
-  } catch (_) {
-    return {};
-  }
-}
-
-function saveAccountsDB(db) {
-  localStorage.setItem("sos911_accounts_db", JSON.stringify(db));
-}
-
-function getAuthUser() {
-  try {
-    const raw = localStorage.getItem("sos911_auth_user");
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function saveAuthUser(data) {
-  localStorage.setItem("sos911_auth_user", JSON.stringify(data));
-}
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — AUTENTICACIÓN (pantalla Login / Registro)
+// ════════════════════════════════════════════════════════════
 
 function dismissAuth() {
   const authScreen = $("authScreen");
   if (authScreen) authScreen.classList.add("hidden");
 }
 
-function renderSavedAccounts() {
-  const container = $("savedAccountsContainer");
-  const list = $("savedAccountsList");
-  if (!container || !list) return;
-
-  const db = getAccountsDB();
-  const emails = Object.keys(db);
-
-  if (emails.length === 0) {
-    container.classList.add("hidden");
-    list.innerHTML = "";
-    return;
-  }
-
-  container.classList.remove("hidden");
-  list.innerHTML = emails
-    .map((email) => {
-      const acc = db[email];
-      const initial = (acc.name ? acc.name.charAt(0) : "U").toUpperCase();
-      return `
-      <div class="account-chip" data-email="${email}" title="Toca para iniciar sesión de inmediato">
-        <div class="account-chip-main">
-          <div class="account-chip-icon">${initial}</div>
-          <div class="account-chip-info">
-            <span class="account-chip-name">${acc.name || "Usuario"}</span>
-            <span class="account-chip-email">${email}</span>
-          </div>
-        </div>
-        <div style="display:flex; align-items:center; gap:6px;">
-          <span class="material-symbols-rounded" style="font-size:1.15rem; color:var(--accent-blue);" title="Iniciar Sesión Rápido">login</span>
-          <button type="button" class="account-chip-remove" title="Quitar cuenta de este dispositivo" data-remove="${email}">
-            <span class="material-symbols-rounded" style="font-size: 1.1rem;">close</span>
-          </button>
-        </div>
-      </div>
-    `;
-    })
-    .join("");
-
-  list.querySelectorAll(".account-chip").forEach((chip) => {
-    chip.addEventListener("click", (e) => {
-      if (e.target.closest(".account-chip-remove")) return;
-      const email = chip.getAttribute("data-email");
-      const db = getAccountsDB();
-      const account = db[email];
-
-      if (!account || !account.registered) {
-        showToast("❌ No se encontraron datos para esta cuenta.", "#DC2626");
-        return;
-      }
-
-      // Iniciar sesión directa con 1 solo toque
-      saveAuthUser({ ...account, isLoggedIn: true });
-
-      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-      state.user.name = account.name || "Usuario";
-      state.user.email = account.email;
-      saveState();
-
-      showToast(
-        `✅ ¡Bienvenido de nuevo, ${account.name || "Usuario"}!`,
-        "#16A34A",
-      );
-      dismissAuth();
-    });
-  });
-
-  list.querySelectorAll(".account-chip-remove").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const emailToRemove = btn.getAttribute("data-remove");
-      if (emailToRemove) {
-        const currentDb = getAccountsDB();
-        delete currentDb[emailToRemove];
-        saveAccountsDB(currentDb);
-        renderSavedAccounts();
-        showToast("🗑️ Cuenta removida del dispositivo", "#64748B");
-      }
-    });
-  });
-}
-
-function logoutUser() {
-  const authUser = getAuthUser();
-  if (authUser) {
-    authUser.isLoggedIn = false;
-    saveAuthUser(authUser);
-  }
-  const backdrop = $("profileModalBackdrop");
-  if (backdrop) backdrop.classList.remove("open");
-
+function showAuthScreen() {
   const authScreen = $("authScreen");
   if (authScreen) authScreen.classList.remove("hidden");
-
-  const loginEmail = $("loginEmail");
-  const loginPassword = $("loginPassword");
-  if (loginEmail) loginEmail.value = "";
-  if (loginPassword) loginPassword.value = "";
-
-  renderSavedAccounts();
-  showToast("🚪 Sesión cerrada correctamente", "#2563EB");
 }
 
-function showOnboarding() {
-  const screen = $("onboardingScreen");
-  if (screen) {
-    screen.classList.remove("hidden");
-    // Pre-rellenar si ya tiene datos
-    const u = state.user || {};
-    if ($("obAge")) $("obAge").value = u.age || "";
-    if ($("obBloodType")) $("obBloodType").value = u.bloodType || "";
-    if ($("obCondition")) $("obCondition").value = u.condition || "";
-    if ($("obAllergies")) $("obAllergies").value = u.allergies || "";
-    if ($("obEcName")) $("obEcName").value = u.emergencyContactName || "";
-    if ($("obEcPhone")) $("obEcPhone").value = u.emergencyContactPhone || "";
+// Punto de entrada: se llama una vez que sabemos que hay sesión activa.
+// Carga perfil, contactos e historial desde Supabase y refresca la UI.
+async function initializeUserSession() {
+  await loadUserProfile();
+  await refreshContacts();
+  await refreshLogs();
+  await checkActiveEmergency();
+
+  if ($("userEmailInput")) $("userEmailInput").value = state.user.email || "";
+
+  // Mostrar onboarding si el usuario nunca completó su ficha médica
+  if (!state.user.onboardingDone) {
+    setTimeout(() => showOnboarding(), 400);
   }
 }
 
 function initAuthScreen() {
-  const authScreen = $("authScreen");
   const loginForm = $("loginForm");
   const registerForm = $("registerForm");
   const tabLoginBtn = $("tabLoginBtn");
@@ -1349,10 +1243,78 @@ function initAuthScreen() {
   const toggleLoginPwd = $("toggleLoginPwd");
   const toggleRegPwd = $("toggleRegPwd");
 
-  // Renderizar cuentas guardadas en el dispositivo
-  renderSavedAccounts();
+  const savedAccountsContainer = $("savedAccountsContainer");
+  const loginFormMainFields = document.querySelectorAll("#loginForm .form-group");
+  const loginSubmitBtn = $("loginSubmitBtn");
 
-  // Escuchar correo válido en tiempo real
+  function renderQuickLogin() {
+    try {
+      const quickData = JSON.parse(localStorage.getItem("sos911_quick_login"));
+      if (quickData && quickData.email && quickData.pwd) {
+        if (savedAccountsContainer) {
+          savedAccountsContainer.classList.remove("hidden");
+          const initial = quickData.name ? quickData.name.charAt(0).toUpperCase() : "U";
+          
+          $("savedAccountsList").innerHTML = `
+            <div class="quick-login-card" id="quickLoginCard" style="display:flex; align-items:center; background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; cursor:pointer; transition:all 0.2s; border: 1px solid rgba(255,255,255,0.1); gap: 16px;">
+              <div style="width:48px; height:48px; background:linear-gradient(135deg, #3B82F6, #2563EB); border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; font-size:20px; font-weight:bold; box-shadow:0 4px 12px rgba(37,99,235,0.3);">
+                ${initial}
+              </div>
+              <div style="flex: 1;">
+                <div style="font-weight:600; color:white; font-size:16px;">${quickData.name}</div>
+                <div style="color:var(--text-muted); font-size:13px;">${quickData.email}</div>
+              </div>
+              <span class="material-symbols-rounded" style="color:#3B82F6;">arrow_forward_ios</span>
+            </div>
+            <div style="text-align:center; margin-top:16px;">
+              <a href="#" id="useAnotherAccountBtn" style="color:var(--text-muted); font-size:13px; text-decoration:none; border-bottom:1px dashed var(--text-muted);">Usar otra cuenta</a>
+            </div>
+          `;
+
+          loginFormMainFields.forEach(el => el.classList.add("hidden"));
+          if (loginSubmitBtn) loginSubmitBtn.classList.add("hidden");
+
+          $("quickLoginCard").addEventListener("click", async () => {
+            const btn = $("quickLoginCard");
+            btn.style.opacity = "0.7";
+            btn.style.pointerEvents = "none";
+            showToast("Iniciando sesión automáticamente...", "#3B82F6");
+            
+            const { data, error } = await sb.auth.signInWithPassword({
+              email: quickData.email,
+              password: atob(quickData.pwd),
+            });
+            
+            if (error) {
+              showToast("❌ La sesión expiró o credenciales inválidas. Inicia sesión manualmente.", "#DC2626");
+              localStorage.removeItem("sos911_quick_login");
+              renderQuickLogin();
+            } else {
+              showToast("✅ ¡Bienvenido de nuevo, " + quickData.name + "!", "#16A34A");
+              dismissAuth();
+              await initializeUserSession();
+            }
+          });
+
+          $("useAnotherAccountBtn").addEventListener("click", (e) => {
+            e.preventDefault();
+            savedAccountsContainer.classList.add("hidden");
+            loginFormMainFields.forEach(el => el.classList.remove("hidden"));
+            if (loginSubmitBtn) loginSubmitBtn.classList.remove("hidden");
+          });
+        }
+      } else {
+        if (savedAccountsContainer) savedAccountsContainer.classList.add("hidden");
+        loginFormMainFields.forEach(el => el.classList.remove("hidden"));
+        if (loginSubmitBtn) loginSubmitBtn.classList.remove("hidden");
+      }
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  renderQuickLogin();
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const loginEmailInp = $("loginEmail");
   const regEmailInp = $("regEmail");
@@ -1361,37 +1323,25 @@ function initAuthScreen() {
     loginEmailInp.addEventListener("input", () => {
       const badge = $("loginEmailValid");
       if (badge) {
-        if (emailRegex.test(loginEmailInp.value.trim())) {
-          badge.classList.remove("hidden");
-        } else {
-          badge.classList.add("hidden");
-        }
+        badge.classList.toggle(
+          "hidden",
+          !emailRegex.test(loginEmailInp.value.trim()),
+        );
       }
     });
   }
-
   if (regEmailInp) {
     regEmailInp.addEventListener("input", () => {
       const badge = $("regEmailValid");
       if (badge) {
-        if (emailRegex.test(regEmailInp.value.trim())) {
-          badge.classList.remove("hidden");
-        } else {
-          badge.classList.add("hidden");
-        }
+        badge.classList.toggle(
+          "hidden",
+          !emailRegex.test(regEmailInp.value.trim()),
+        );
       }
     });
   }
 
-  // Verificar si ya hay sesión activa
-  const authUser = getAuthUser();
-  if (authUser && authUser.registered && authUser.isLoggedIn !== false) {
-    dismissAuth();
-  } else if (authScreen) {
-    authScreen.classList.remove("hidden");
-  }
-
-  // Tabs switch
   function switchTab(activeTab, activeForm, inactiveTab, inactiveForm) {
     activeTab.classList.add("active");
     inactiveTab.classList.remove("active");
@@ -1408,7 +1358,6 @@ function initAuthScreen() {
     );
   }
 
-  // Toggle contraseña — Login
   if (toggleLoginPwd) {
     toggleLoginPwd.addEventListener("click", () => {
       const inp = $("loginPassword");
@@ -1422,8 +1371,6 @@ function initAuthScreen() {
       }
     });
   }
-
-  // Toggle contraseña — Registro
   if (toggleRegPwd) {
     toggleRegPwd.addEventListener("click", () => {
       const inp = $("regPassword");
@@ -1438,9 +1385,9 @@ function initAuthScreen() {
     });
   }
 
-  // SUBMIT LOGIN
+  // 🔌 SUBMIT LOGIN — supabase.auth.signInWithPassword
   if (loginForm) {
-    loginForm.addEventListener("submit", (e) => {
+    loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = $("loginEmail")?.value.trim().toLowerCase();
       const password = $("loginPassword")?.value;
@@ -1450,50 +1397,36 @@ function initAuthScreen() {
         return;
       }
 
-      const db = getAccountsDB();
-      let account = db[email];
+      const { data, error } = await sb.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      // Migración de datos legados si existía una cuenta sin db
-      const legacyUser = getAuthUser();
-      if (
-        !account &&
-        legacyUser &&
-        legacyUser.registered &&
-        legacyUser.email === email
-      ) {
-        account = legacyUser;
-        db[email] = account;
-        saveAccountsDB(db);
-      }
-
-      if (!account || !account.registered) {
-        showToast("❌ No existe cuenta registrada con este correo.", "#DC2626");
+      if (error) {
+        showToast("❌ " + (error.message || "Credenciales incorrectas."), "#DC2626");
         return;
       }
 
-      if (account.passwordHash !== simpleHash(password)) {
-        showToast("❌ Contraseña incorrecta.", "#DC2626");
-        return;
+      // UX Premium: Guardar sesión para 1 Click Login
+      let userName = "Usuario";
+      if (data && data.user && data.user.user_metadata) {
+        userName = data.user.user_metadata.full_name || userName;
       }
+      localStorage.setItem("sos911_quick_login", JSON.stringify({
+        email: email,
+        pwd: btoa(password),
+        name: userName
+      }));
 
-      saveAuthUser({ ...account, isLoggedIn: true });
-
-      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-      state.user.name = account.name || "Usuario";
-      state.user.email = account.email;
-      saveState();
-
-      showToast(
-        `✅ ¡Bienvenido de nuevo, ${account.name || "Usuario"}!`,
-        "#16A34A",
-      );
+      showToast(`✅ ¡Bienvenido de nuevo!`, "#16A34A");
       dismissAuth();
+      await initializeUserSession();
     });
   }
 
-  // SUBMIT REGISTRO
+  // 🔌 SUBMIT REGISTRO — supabase.auth.signUp
   if (registerForm) {
-    registerForm.addEventListener("submit", (e) => {
+    registerForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = $("regName")?.value.trim();
       const email = $("regEmail")?.value.trim().toLowerCase();
@@ -1503,8 +1436,6 @@ function initAuthScreen() {
         showToast("⚠️ Ingresa tu nombre", "#D97706");
         return;
       }
-
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!email || !emailRegex.test(email)) {
         showToast("⚠️ Ingresa un formato de correo válido", "#D97706");
         return;
@@ -1516,7 +1447,6 @@ function initAuthScreen() {
         );
         return;
       }
-
       if (!password || password.length < 6) {
         showToast(
           "⚠️ La contraseña debe tener al menos 6 caracteres",
@@ -1525,45 +1455,95 @@ function initAuthScreen() {
         return;
       }
 
-      const db = getAccountsDB();
-      const newAccount = {
-        name,
+      const { data, error } = await sb.auth.signUp({
         email,
-        passwordHash: simpleHash(password),
-        registered: true,
-      };
-      db[email] = newAccount;
-      saveAccountsDB(db);
+        password,
+        options: { data: { full_name: name } },
+      });
 
-      saveAuthUser({ ...newAccount, isLoggedIn: true });
+      if (error) {
+        showToast("❌ " + error.message, "#DC2626");
+        return;
+      }
 
-      // Actualizar nombre en el perfil del estado
-      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-      state.user.name = name;
-      state.user.email = email;
-      saveState();
+      // Si tu proyecto de Supabase tiene activada la confirmación por correo,
+      // `data.session` viene null hasta que el usuario confirme su email.
+      if (!data.session) {
+        showToast(
+          "📧 Cuenta creada. Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.",
+          "#2563EB",
+          6000,
+        );
+        return;
+      }
+
+      // UX Premium: Guardar sesión para 1 Click Login
+      localStorage.setItem("sos911_quick_login", JSON.stringify({
+        email: email,
+        pwd: btoa(password),
+        name: name
+      }));
 
       showToast(`🎉 Cuenta creada. ¡Bienvenido, ${name}!`, "#16A34A", 3000);
       dismissAuth();
-
-      // Mostrar Onboarding solo si aún no se completó
-      const onboardingDone = localStorage.getItem("sos911_onboarding_done");
-      if (!onboardingDone) {
-        setTimeout(() => showOnboarding(), 400);
-      }
+      await initializeUserSession();
     });
   }
 }
 
-// ── ONBOARDING — FICHA DE EMERGENCIA ─────────────────────────
+// 🔌 Cierra sesión en Supabase y vuelve a la pantalla de autenticación
+async function logoutUser() {
+  await sb.auth.signOut();
+
+  const backdrop = $("profileModalBackdrop");
+  if (backdrop) backdrop.classList.remove("open");
+
+  showAuthScreen();
+
+  const loginEmail = $("loginEmail");
+  const loginPassword = $("loginPassword");
+  if (loginEmail) loginEmail.value = "";
+  if (loginPassword) loginPassword.value = "";
+
+  // Limpiar estado/cachés en memoria
+  state = {
+    status: "SECURE",
+    incident: null,
+    user: JSON.parse(JSON.stringify(DEFAULT_PROFILE)),
+  };
+  contactsCache = [];
+  logsCache = [];
+
+  showToast("🚪 Sesión cerrada correctamente", "#2563EB");
+}
+
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — ONBOARDING (ficha de emergencia inicial)
+// ════════════════════════════════════════════════════════════
+function showOnboarding() {
+  const screen = $("onboardingScreen");
+  if (screen) {
+    screen.classList.remove("hidden");
+    const u = state.user || {};
+    if ($("obAge")) $("obAge").value = u.age || "";
+    if ($("obBloodType")) $("obBloodType").value = u.bloodType || "";
+    if ($("obCondition")) $("obCondition").value = u.condition || "";
+    if ($("obAllergies")) $("obAllergies").value = u.allergies || "";
+    if ($("obEcName")) $("obEcName").value = u.emergencyContactName || "";
+    if ($("obEcPhone")) $("obEcPhone").value = u.emergencyContactPhone || "";
+  }
+}
+
 function initOnboardingScreen() {
   const form = $("onboardingForm");
   const skipBtn = $("onboardingSkipBtn");
   const screen = $("onboardingScreen");
 
   if (skipBtn) {
-    skipBtn.addEventListener("click", () => {
-      localStorage.setItem("sos911_onboarding_done", "1");
+    skipBtn.addEventListener("click", async () => {
+      // 🔌 Marcamos onboarding_done=true en Supabase para no volver a mostrarlo
+      await saveProfileToSupabase({ onboarding_done: true });
+      state.user.onboardingDone = true;
       if (screen) screen.classList.add("hidden");
       showToast(
         "📋 Puedes completar tu ficha médica desde el ícono de perfil",
@@ -1574,7 +1554,7 @@ function initOnboardingScreen() {
   }
 
   if (form) {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
       const age = $("obAge")?.value.trim();
@@ -1584,17 +1564,28 @@ function initOnboardingScreen() {
       const ecName = $("obEcName")?.value.trim();
       const ecPhone = $("obEcPhone")?.value.trim();
 
-      if (!state.user) state.user = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+      // 🔌 Guardar la ficha de emergencia inicial en la tabla `profiles`
+      const saved = await saveProfileToSupabase({
+        // Columnas en español (esquema real de Supabase)
+        edad: age ? parseInt(age, 10) : null,
+        "tipo de sangre": bloodType,
+        enfermedad: condition,
+        alergias: allergies,
+        "contacto emergencia nombre": ecName,
+        "contacto emergencia telefono": ecPhone,
+        onboarding_done: true,
+        // Fallback en inglés por compatibilidad
+        age: age ? parseInt(age, 10) : null,
+        blood_type: bloodType,
+        condition,
+        allergies,
+        emergency_contact_name: ecName,
+        emergency_contact_phone: ecPhone,
+      });
 
-      state.user.age = age;
-      state.user.bloodType = bloodType;
-      state.user.condition = condition;
-      state.user.allergies = allergies;
-      state.user.emergencyContactName = ecName;
-      state.user.emergencyContactPhone = ecPhone;
+      if (!saved) return; // el error ya se mostró en saveProfileToSupabase
 
-      saveState();
-      localStorage.setItem("sos911_onboarding_done", "1");
+      state.user = mapProfileRowToState(saved);
 
       if (screen) screen.classList.add("hidden");
       showToast("✅ Ficha de emergencia guardada correctamente", "#16A34A");
@@ -1602,7 +1593,180 @@ function initOnboardingScreen() {
   }
 }
 
-// ── CONTROLES NUMÉRICOS PERSONALIZADOS ────────────────────────
+// ── PERFIL DE USUARIO (RF-01) ─────────────────────────────────
+function initProfileModal() {
+  const openBtn = $("openProfileBtn");
+  const closeBtn = $("closeProfileModal");
+  const backdrop = $("profileModalBackdrop");
+  const form = $("profileForm");
+
+  if (openBtn) {
+    openBtn.addEventListener("click", () => {
+      const u = state.user || DEFAULT_PROFILE;
+      if ($("userNameInput")) $("userNameInput").value = u.name || "";
+      if ($("userPhoneInput")) $("userPhoneInput").value = u.phone || "";
+      if ($("userEmailInput")) $("userEmailInput").value = u.email || "";
+      if ($("userAddressInput")) $("userAddressInput").value = u.address || "";
+
+      if ($("profileAge")) $("profileAge").value = u.age || "";
+      if ($("profileBloodType"))
+        $("profileBloodType").value = u.bloodType || "";
+      if ($("profileCondition"))
+        $("profileCondition").value = u.condition || "";
+      if ($("profileAllergies"))
+        $("profileAllergies").value = u.allergies || "";
+      if ($("profileMedication"))
+        $("profileMedication").value = u.medication || "";
+      if ($("profileInsurance"))
+        $("profileInsurance").value = u.insurance || "";
+      if ($("profileNotes")) $("profileNotes").value = u.notes || "";
+
+      if ($("profileEcName"))
+        $("profileEcName").value = u.emergencyContactName || "";
+      if ($("profileEcPhone"))
+        $("profileEcPhone").value = u.emergencyContactPhone || "";
+
+      $$(".form-error-msg").forEach((el) => (el.textContent = ""));
+      backdrop.classList.add("open");
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => backdrop.classList.remove("open"));
+  }
+
+  const logoutBtn = $("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      logoutUser();
+    });
+  }
+
+  const pTabs = $$(".profile-tab");
+  const pContents = $$(".profile-tab-content");
+  if (pTabs.length > 0) {
+    pTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        pTabs.forEach((t) => t.classList.remove("active"));
+        pContents.forEach((c) => c.classList.add("hidden"));
+        tab.classList.add("active");
+        const targetContent = $(tab.getAttribute("data-ptab"));
+        if (targetContent) targetContent.classList.remove("hidden");
+      });
+    });
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      $$(".form-error-msg").forEach((el) => (el.textContent = ""));
+      let hasError = false;
+
+      const userName = $("userNameInput")?.value.trim() || "";
+      const userPhone = $("userPhoneInput")?.value.trim() || "";
+      const userAddress = $("userAddressInput")?.value.trim() || "";
+
+      const age = $("profileAge") ? $("profileAge").value.trim() : "";
+      const bloodType = $("profileBloodType")
+        ? $("profileBloodType").value
+        : "";
+      const ecPhone = $("profileEcPhone")
+        ? $("profileEcPhone").value.trim()
+        : "";
+
+      if (!age) {
+        if ($("err-profileAge"))
+          $("err-profileAge").textContent = "La edad es obligatoria.";
+        hasError = true;
+      } else {
+        const ageNum = parseInt(age, 10);
+        if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
+          if ($("err-profileAge"))
+            $("err-profileAge").textContent =
+              "Ingresa una edad válida (1-120).";
+          hasError = true;
+        }
+      }
+
+      if (!bloodType) {
+        if ($("err-profileBloodType"))
+          $("err-profileBloodType").textContent =
+            "Selecciona un tipo de sangre.";
+        hasError = true;
+      }
+
+
+
+      if (hasError) return;
+
+      // UX Premium: Cambiar botón a estado de carga
+      const saveBtn = $("saveProfileBtn");
+      const originalText = saveBtn.innerHTML;
+
+      try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="material-symbols-rounded spin-loader">sync</span> Guardando...';
+
+        // 🔌 Guardar en Supabase — columnas en español + fallback inglés
+        const conditionVal = $("profileCondition")?.value.trim() || "";
+        const allergiesVal = $("profileAllergies")?.value.trim() || "";
+        const saved = await saveProfileToSupabase({
+          // Columnas en español (esquema real de Supabase)
+          nombre: userName,
+          telefono: userPhone,
+          direccion: userAddress,
+          edad: parseInt(age, 10),
+          "tipo de sangre": bloodType,
+          alergias: allergiesVal,
+          enfermedad: conditionVal,
+          medicacion: $("profileMedication")?.value.trim() || "",
+          seguro: $("profileInsurance")?.value || "",
+          notas: $("profileNotes")?.value.trim() || "",
+          // Fallback inglés por compatibilidad
+          name: userName,
+          phone: userPhone,
+          address: userAddress,
+          age: parseInt(age, 10),
+          blood_type: bloodType,
+          condition: conditionVal,
+          allergies: allergiesVal,
+          medication: $("profileMedication")?.value.trim() || "",
+          insurance: $("profileInsurance")?.value || "",
+          notes: $("profileNotes")?.value.trim() || "",
+        });
+
+        // Simulamos fetch adicional para apreciar la animación
+        await new Promise(r => setTimeout(r, 1200));
+
+        if (!saved) {
+          // Si no se guardó (error), saveProfileToSupabase ya muestra un toast. 
+          return;
+        }
+
+        state.user = mapProfileRowToState(saved);
+        if ($("userEmailInput"))
+          $("userEmailInput").value = state.user.email || "";
+
+        backdrop.classList.remove("open");
+        
+        // UX Premium: Actualizar la Ficha Médica Transmitida
+        showMedicalBannerCard();
+        
+        // UX Premium: Toast Animado de Éxito
+        showToast("✅ ¡Ficha guardada exitosamente!", "#10B981");
+      } catch (err) {
+        console.error("Error guardando ficha:", err);
+        showToast("❌ Error inesperado guardando la ficha.", "#DC2626");
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+      }
+    });
+  }
+}
+
+// ── CONTROLES NUMÉRICOS PERSONALIZADOS (sin cambios) ──────────
 function initNumberInputControls() {
   const setupControls = (inputId, decBtnId, incBtnId) => {
     const input = $(inputId);
@@ -1634,27 +1798,10 @@ function initNumberInputControls() {
   setupControls("obAge", "btn-dec-obAge", "btn-inc-obAge");
 }
 
-// ── ACCESIBILIDAD: TEMA Y FUENTE ────────────────────────────
-const PREFS_KEY = "sos911_app_prefs";
-const FONT_STEPS = [87.5, 100, 112.5, 125, 137.5];
-const DEFAULT_FONT_INDEX = 1; // 100%
-
-function loadPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function savePrefs(prefs) {
-  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-}
-
+// ── ACCESIBILIDAD: TEMA Y FUENTE (sin cambios, sigue en localStorage) ──
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
 }
-
 function applyFontScale(pct) {
   document.documentElement.style.fontSize = pct + "%";
 }
@@ -1665,11 +1812,9 @@ function initAccessibilitySettings() {
   const fontIdx =
     typeof prefs.fontIndex === "number" ? prefs.fontIndex : DEFAULT_FONT_INDEX;
 
-  // Apply stored values immediately
   applyTheme(theme);
   applyFontScale(FONT_STEPS[fontIdx]);
 
-  // Theme toggle
   const toggle = $("themeToggle");
   if (toggle) {
     toggle.checked = theme === "light";
@@ -1682,7 +1827,6 @@ function initAccessibilitySettings() {
     });
   }
 
-  // Font controls
   const btnDec = $("btnFontDec");
   const btnInc = $("btnFontInc");
   const indicator = $("fontSizeIndicator");
@@ -1693,7 +1837,6 @@ function initAccessibilitySettings() {
     if (btnDec) btnDec.disabled = currentIdx <= 0;
     if (btnInc) btnInc.disabled = currentIdx >= FONT_STEPS.length - 1;
   }
-
   updateFontUI();
 
   if (btnDec) {
@@ -1708,7 +1851,6 @@ function initAccessibilitySettings() {
       }
     });
   }
-
   if (btnInc) {
     btnInc.addEventListener("click", () => {
       if (currentIdx < FONT_STEPS.length - 1) {
@@ -1723,9 +1865,10 @@ function initAccessibilitySettings() {
   }
 }
 
-// ── INICIALIZACIÓN PRINCIPAL ─────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  loadState();
+// ════════════════════════════════════════════════════════════
+//  🔌 SUPABASE — INICIALIZACIÓN PRINCIPAL
+// ════════════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", async () => {
   initAccessibilitySettings();
   initNumberInputControls();
   initAuthScreen();
@@ -1740,16 +1883,53 @@ document.addEventListener("DOMContentLoaded", () => {
   initShareLocation();
   initDirectCall();
 
-  renderContacts();
-  renderLogs();
-  updateHomeContactCount();
+  // 🔌 Verificar si ya existe una sesión de Supabase activa (p. ej. al recargar)
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
 
-  // Si había una emergencia activa guardada
-  if (state.status === "EMERGENCY" && state.incident) {
-    activateEmergency(
-      state.incident.type,
-      state.incident.name,
-      state.incident.icon,
-    );
+  if (session) {
+    // Si hay sesión activa Y datos de acceso rápido guardados, mostramos la
+    // tarjeta de 1 clic para que el usuario confirme con quién ingresar.
+    const quickData = (() => {
+      try { return JSON.parse(localStorage.getItem("sos911_quick_login")); } catch { return null; }
+    })();
+
+    if (quickData && quickData.email) {
+      // Mostrar pantalla de auth con la tarjeta de acceso rápido ya renderizada
+      showAuthScreen();
+      // La sesión ya existe: al hacer clic en la tarjeta, entramos directamente
+      // sin necesidad de llamar a signInWithPassword de nuevo
+      setTimeout(() => {
+        const card = document.getElementById("quickLoginCard");
+        if (card) {
+          // Reemplazar listener para que use la sesión activa en lugar de re-autenticar
+          card.replaceWith(card.cloneNode(true)); // limpia el listener anterior
+          const freshCard = document.getElementById("quickLoginCard");
+          if (freshCard) {
+            freshCard.addEventListener("click", async () => {
+              freshCard.style.opacity = "0.7";
+              freshCard.style.pointerEvents = "none";
+              showToast("✅ ¡Bienvenido de nuevo, " + quickData.name + "!", "#16A34A");
+              dismissAuth();
+              await initializeUserSession();
+            });
+          }
+        }
+      }, 100);
+    } else {
+      dismissAuth();
+      await initializeUserSession();
+    }
+  } else {
+    showAuthScreen();
   }
+
+  // 🔌 Reaccionar a cambios de sesión (login/logout desde cualquier pestaña,
+  // expiración de token, etc.)
+  sb.auth.onAuthStateChange((event, newSession) => {
+    if (event === "SIGNED_OUT") {
+      showAuthScreen();
+    }
+  });
 });
