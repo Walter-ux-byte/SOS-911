@@ -299,24 +299,9 @@
               />
             </div>
 
-            <div class="ob-section-label">
-              <span class="material-symbols-rounded">contact_phone</span>
-              Contacto de Emergencia Principal
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="obEcName">Nombre</label>
-                <input type="text" id="obEcName" placeholder="Ej. Ana García" />
-              </div>
-              <div class="form-group">
-                <label for="obEcPhone">Teléfono</label>
-                <input
-                  type="tel"
-                  id="obEcPhone"
-                  placeholder="+593 99 000 0000"
-                />
-              </div>
+            <div class="ob-info-note">
+              <span class="material-symbols-rounded" style="color: var(--accent-blue, #3b82f6);">lightbulb</span>
+              <span>💡 Los contactos de emergencia se gestionan directamente desde la pestaña "Contactos".</span>
             </div>
 
             <button
@@ -358,7 +343,9 @@
         <div class="mbc-header">
           <svg class="mbc-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <strong>Ficha Médica Transmitida</strong>
-          <button class="mbc-close" id="closeMedicalBanner">&times;</button>
+          <button class="mbc-close" id="closeMedicalBanner" title="Cerrar">
+            <span class="material-symbols-rounded">close</span>
+          </button>
         </div>
         <div class="mbc-grid">
           <div class="mbc-cell mbc-cell-blood">
@@ -739,7 +726,7 @@
           <span class="nav-text">Mapa & GPS</span>
         </button>
         <button class="nav-item" data-tab="view-contacts" id="nav-contactos">
-          <span class="material-symbols-rounded nav-icon">contacts</span>
+          <span class="material-symbols-rounded nav-icon">group</span>
           <span class="nav-text">Contactos</span>
         </button>
         <button class="nav-item" data-tab="view-history" id="nav-historial">
@@ -757,8 +744,8 @@
             <span class="material-symbols-rounded">badge</span> Perfil y Ficha
             de Emergencia
           </h3>
-          <button class="modal-close-btn" id="closeProfileModal">
-            &times;
+          <button class="modal-close-btn" id="closeProfileModal" title="Cerrar">
+            <span class="material-symbols-rounded">close</span>
           </button>
         </div>
         <div class="modal-body">
@@ -956,28 +943,11 @@
                   ></textarea>
                 </div>
 
-                <div class="form-group">
-                  <label for="profileEcName">
-                    <span class="material-symbols-rounded form-icon">person</span>
-                    Contacto Emergencia (Nombre)
-                  </label>
-                  <input
-                    type="text"
-                    id="profileEcName"
-                    placeholder="Ej. Ana García"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label for="profileEcPhone">
-                    <span class="material-symbols-rounded form-icon">call</span>
-                    Contacto Emergencia (Teléfono)
-                  </label>
-                  <input
-                    type="tel"
-                    id="profileEcPhone"
-                    placeholder="+593 99 000 0000"
-                  />
+                <div class="form-group col-span-2">
+                  <div class="profile-info-note">
+                    <span class="material-symbols-rounded" style="color: var(--accent-blue, #3b82f6); font-size: 18px;">lightbulb</span>
+                    <span>💡 Los contactos de emergencia se gestionan directamente desde la pestaña "Contactos".</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1079,7 +1049,9 @@
             <span class="material-symbols-rounded">verified_user</span>
             Finalizar Alerta de Emergencia
           </h3>
-          <button class="modal-close-btn" id="rmDismiss">&times;</button>
+          <button class="modal-close-btn" id="rmDismiss" title="Cerrar">
+            <span class="material-symbols-rounded">close</span>
+          </button>
         </div>
         <div class="modal-body">
           <p class="modal-desc">
@@ -1112,8 +1084,8 @@
           <h3>
             <span class="material-symbols-rounded">edit</span> Editar Contacto
           </h3>
-          <button class="modal-close-btn" id="closeEditContactModal">
-            &times;
+          <button class="modal-close-btn" id="closeEditContactModal" title="Cerrar">
+            <span class="material-symbols-rounded">close</span>
           </button>
         </div>
         <div class="modal-body">
@@ -1159,8 +1131,8 @@
             >
               <span class="material-symbols-rounded">my_location</span>
             </button>
-            <button class="modal-close-btn" id="closeMapModalBtn">
-              &times;
+            <button class="modal-close-btn" id="closeMapModalBtn" title="Cerrar">
+              <span class="material-symbols-rounded">close</span>
             </button>
           </div>
         </div>
@@ -1175,6 +1147,12 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- COMPONENTE OVERLAY DE CARGA GLOBAL -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="loadingOverlayText">Procesando...</div>
     </div>
 
     <!-- Leaflet.js JS -->

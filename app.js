@@ -83,32 +83,51 @@ function showToast(msg, color = "#2563EB", duration = 3500) {
   toast.textContent = msg;
   Object.assign(toast.style, {
     position: "fixed",
-    bottom: "80px",
+    top: "24px",
     left: "50%",
-    transform: "translateX(-50%)",
+    transform: "translateX(-50%) translateY(-24px) scale(0.94)",
     background: color,
     color: "#fff",
-    padding: "12px 20px",
+    padding: "12px 22px",
     borderRadius: "9999px",
     fontFamily: "'Inter', sans-serif",
     fontSize: "13px",
     fontWeight: "600",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+    boxShadow: "0 16px 40px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25)",
     zIndex: "99999",
-    maxWidth: "360px",
+    maxWidth: "380px",
     textAlign: "center",
     opacity: "0",
-    transition: "opacity 0.3s ease",
+    transition: "all 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+    pointerEvents: "none",
   });
 
   document.body.appendChild(toast);
   requestAnimationFrame(() => {
     toast.style.opacity = "1";
+    toast.style.transform = "translateX(-50%) translateY(0) scale(1)";
   });
   setTimeout(() => {
     toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 300);
+    toast.style.transform = "translateX(-50%) translateY(-20px) scale(0.94)";
+    setTimeout(() => toast.remove(), 350);
   }, duration);
+}
+
+function showLoadingOverlay(msg = "Procesando...") {
+  const overlay = $("loadingOverlay");
+  const text = $("loadingOverlayText");
+  if (overlay) {
+    if (text) text.textContent = msg;
+    overlay.classList.remove("hidden");
+  }
+}
+
+function hideLoadingOverlay() {
+  const overlay = $("loadingOverlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+  }
 }
 
 // ── PREFERENCIAS LOCALES (tema/fuente) ─────────────────────────
@@ -153,65 +172,120 @@ function mapProfileRowToState(row) {
   };
 }
 
+//
+
+function closeModal(modalId) {
+  if (modalId === "profileModal" || modalId === "profileModalBackdrop") {
+    $("profileModalBackdrop")?.classList.remove("open");
+  } else {
+    const el = $(modalId) || $(modalId + "Backdrop");
+    if (el) el.classList.remove("open");
+  }
+}
+
+function renderProfileUI() {
+  const u = state.user || DEFAULT_PROFILE;
+
+  // 1. Campos del formulario del modal de perfil (#profileForm)
+  if ($("userNameInput")) $("userNameInput").value = u.name || "";
+  if ($("userPhoneInput")) $("userPhoneInput").value = u.phone || "";
+  if ($("userEmailInput")) $("userEmailInput").value = u.email || "";
+  if ($("userAddressInput")) $("userAddressInput").value = u.address || "";
+
+  if ($("profileAge")) $("profileAge").value = u.age ?? "";
+  if ($("profileBloodType")) $("profileBloodType").value = u.bloodType || "";
+  if ($("profileCondition")) $("profileCondition").value = u.condition || "";
+  if ($("profileAllergies")) $("profileAllergies").value = u.allergies || "";
+  if ($("profileMedication")) $("profileMedication").value = u.medication || "";
+  if ($("profileInsurance")) $("profileInsurance").value = u.insurance || "";
+  if ($("profileNotes")) $("profileNotes").value = u.notes || "";
+
+  // 2. Tarjeta Médica Transmitida (Banner en Home)
+  if ($("mbcBlood")) $("mbcBlood").textContent = u.bloodType || "—";
+  if ($("mbcCondition"))
+    $("mbcCondition").textContent = u.condition || "Ninguna registrada";
+  if ($("mbcAllergies"))
+    $("mbcAllergies").textContent = u.allergies || "Ninguna registrada";
+
+  // 3. Campos del formulario de bienvenida (Onboarding)
+  if ($("obAge")) $("obAge").value = u.age ?? "";
+  if ($("obBloodType")) $("obBloodType").value = u.bloodType || "";
+  if ($("obCondition")) $("obCondition").value = u.condition || "";
+  if ($("obAllergies")) $("obAllergies").value = u.allergies || "";
+}
+
 // ════════════════════════════════════════════════════════════
-//  🔌 SUPABASE — PERFIL (tabla `profiles`)
+// 🔌 SUPABASE — PERFIL Y FICHA MÉDICA
 // ════════════════════════════════════════════════════════════
 
-// Carga (o crea si no existe) la fila de perfil del usuario autenticado.
 async function loadUserProfile() {
   const {
     data: { user },
   } = await sb.auth.getUser();
   if (!user) return;
 
-  // 1. Cargar desde caché local de respaldo
   try {
     const cached = localStorage.getItem("sos911_cached_profile_" + user.id);
     if (cached) {
-      state.user = { ...JSON.parse(JSON.stringify(DEFAULT_PROFILE)), ...JSON.parse(cached) };
+      state.user = {
+        ...JSON.parse(JSON.stringify(DEFAULT_PROFILE)),
+        ...JSON.parse(cached),
+      };
     }
   } catch (e) {
-    console.warn("Error leyendo caché local de perfil:", e);
+    console.warn("Error leyendo caché local:", e);
   }
 
-  // 2. Traer de Supabase
-  let { data: profile, error } = await sb
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+  try {
+    const [{ data: prof }, { data: ficha }] = await Promise.all([
+      sb.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+      sb.from("fichas_medicas").select("*").eq("user_id", user.id).maybeSingle(),
+    ]);
 
-  if (error) {
-    console.error("Supabase (profiles select):", error);
-  }
-
-  if (!profile && !error) {
-    // Primera vez del usuario: creamos su fila de perfil vacía
-    const { data: created, error: insertErr } = await sb
-      .from("profiles")
-      .insert({
-        id: user.id,
-        email: user.email,
-        name: user.user_metadata?.full_name || "Usuario SOS911",
-      })
-      .select()
-      .single();
-    if (insertErr) {
-      console.error("Supabase (profiles insert):", insertErr);
-    } else {
-      profile = created;
+    if (prof) {
+      state.user = {
+        ...state.user,
+        name: prof.name || prof.nombre || state.user.name,
+        phone: prof.phone || prof.telefono || state.user.phone,
+        address: prof.address || prof.direccion || state.user.address,
+        email: prof.email || user.email || state.user.email,
+      };
     }
+
+    if (ficha) {
+      state.user = {
+        ...state.user,
+        name: ficha.nombre || state.user.name,
+        age: ficha.edad ?? state.user.age,
+        bloodType: ficha.tipo_sangre || state.user.bloodType,
+        condition: ficha.enfermedad || state.user.condition,
+        allergies: ficha.alergias || state.user.allergies,
+        medication: ficha.medicacion || state.user.medication,
+        insurance: ficha.seguro || state.user.insurance,
+        notes: ficha.notas || state.user.notes,
+        emergencyContactName:
+          ficha.contacto_emergencia || state.user.emergencyContactName,
+        emergencyContactPhone:
+          ficha.contacto_telefono || state.user.emergencyContactPhone,
+        onboardingDone: true,
+      };
+    }
+
+    if (prof || ficha) {
+      localStorage.setItem(
+        "sos911_cached_profile_" + user.id,
+        JSON.stringify(state.user),
+      );
+    }
+  } catch (err) {
+    console.error("Error al cargar perfil/ficha desde Supabase:", err);
   }
 
-  if (profile) {
-    const mapped = mapProfileRowToState(profile);
-    state.user = { ...state.user, ...mapped };
-    localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
-  }
+  // Sincronizar de inmediato los valores con el DOM
+  renderProfileUI();
 }
 
-// Guarda (upsert) campos del perfil en Supabase sin llaves con espacios.
-async function saveProfileToSupabase(dataObj) {
+async function saveProfileToSupabase(dataObj = {}) {
   const {
     data: { user },
   } = await sb.auth.getUser();
@@ -220,95 +294,179 @@ async function saveProfileToSupabase(dataObj) {
     return null;
   }
 
-  // Actualizar estado local y caché de inmediato para respuesta instantánea
-  state.user = { ...state.user, ...dataObj };
-  localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
+  // Parsear y normalizar edad (entero o null)
+  let edadVal = null;
+  const rawAge =
+    dataObj.edad !== undefined && dataObj.edad !== null && dataObj.edad !== ""
+      ? dataObj.edad
+      : dataObj.age !== undefined && dataObj.age !== null && dataObj.age !== ""
+      ? dataObj.age
+      : $("profileAge")?.value || $("obAge")?.value || state.user.age;
 
-  // Payload estándar en inglés (snake_case sin espacios)
-  const englishPayload = {
-    id: user.id,
-    updated_at: new Date().toISOString(),
-    name: state.user.name || "",
-    phone: state.user.phone || "",
-    email: state.user.email || user.email || "",
-    address: state.user.address || "",
-    age: state.user.age !== "" && state.user.age !== null ? parseInt(state.user.age, 10) : null,
-    blood_type: state.user.bloodType || "",
-    condition: state.user.condition || "",
-    allergies: state.user.allergies || "",
-    medication: state.user.medication || "",
-    insurance: state.user.insurance || "",
-    notes: state.user.notes || "",
-    emergency_contact_name: state.user.emergencyContactName || "",
-    emergency_contact_phone: state.user.emergencyContactPhone || "",
-    onboarding_done: !!state.user.onboardingDone
-  };
-
-  // Intentar upsert con columnas estándar (inglés)
-  let { data, error } = await sb
-    .from("profiles")
-    .upsert(englishPayload)
-    .select()
-    .single();
-
-  if (error) {
-    console.warn("Supabase standard upsert warning:", error.message);
-
-    // Fallback: Intentar con columnas en español (snake_case sin espacios)
-    const spanishPayload = {
-      id: user.id,
-      updated_at: englishPayload.updated_at,
-      nombre: englishPayload.name,
-      telefono: englishPayload.phone,
-      email: englishPayload.email,
-      direccion: englishPayload.address,
-      edad: englishPayload.age,
-      tipo_de_sangre: englishPayload.blood_type,
-      enfermedad: englishPayload.condition,
-      alergias: englishPayload.allergies,
-      medicacion: englishPayload.medication,
-      seguro: englishPayload.insurance,
-      notas: englishPayload.notes,
-      contacto_emergencia_nombre: englishPayload.emergency_contact_name,
-      contacto_emergencia_telefono: englishPayload.emergency_contact_phone,
-      onboarding_done: englishPayload.onboarding_done
-    };
-
-    const resSpanish = await sb
-      .from("profiles")
-      .upsert(spanishPayload)
-      .select()
-      .single();
-
-    if (!resSpanish.error) {
-      data = resSpanish.data;
-      error = null;
-    } else {
-      console.error("Supabase spanish upsert error:", resSpanish.error);
+  if (rawAge !== undefined && rawAge !== null && rawAge !== "") {
+    const parsed = parseInt(rawAge, 10);
+    if (!isNaN(parsed)) {
+      edadVal = parsed;
     }
   }
 
-  if (error) {
-    showToast("⚠️ Guardado localmente. Error BD: " + error.message, "#D97706", 5000);
-    return state.user;
+  // 1. Datos personales para la tabla 'profiles'
+  const profilePayload = {
+    id: user.id,
+    name:
+      dataObj.name ||
+      dataObj.nombre ||
+      $("userNameInput")?.value?.trim() ||
+      $("regName")?.value?.trim() ||
+      state.user.name ||
+      "Usuario SOS911",
+    phone:
+      dataObj.phone ||
+      dataObj.telefono ||
+      $("userPhoneInput")?.value?.trim() ||
+      state.user.phone ||
+      "",
+    email: user.email,
+  };
+
+  const userAddr =
+    dataObj.address ||
+    dataObj.direccion ||
+    $("userAddressInput")?.value?.trim() ||
+    state.user.address;
+  if (userAddr) {
+    profilePayload.address = userAddr;
   }
 
-  console.log("Supabase (profiles upsert) OK:", data);
-  const mapped = mapProfileRowToState(data);
-  state.user = { ...state.user, ...mapped };
-  localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
-  return state.user;
+  // 2. Información médica y de emergencia para la tabla 'fichas_medicas'
+  const primerContacto =
+    typeof contactsCache !== "undefined" && contactsCache.length > 0
+      ? contactsCache[0]
+      : null;
+
+  const fichaPayload = {
+    user_id: user.id,
+    nombre: profilePayload.name,
+    edad: edadVal,
+    tipo_sangre:
+      dataObj.tipo_sangre ||
+      dataObj.bloodType ||
+      $("profileBloodType")?.value ||
+      $("obBloodType")?.value ||
+      state.user.bloodType ||
+      "",
+    alergias:
+      dataObj.alergias ??
+      dataObj.allergies ??
+      $("profileAllergies")?.value?.trim() ??
+      $("obAllergies")?.value?.trim() ??
+      state.user.allergies ??
+      "",
+    enfermedad:
+      dataObj.enfermedad ??
+      dataObj.condition ??
+      $("profileCondition")?.value?.trim() ??
+      $("obCondition")?.value?.trim() ??
+      state.user.condition ??
+      "",
+    medicacion:
+      dataObj.medicacion ??
+      dataObj.medication ??
+      $("profileMedication")?.value?.trim() ??
+      state.user.medication ??
+      "",
+    seguro:
+      dataObj.seguro ??
+      dataObj.insurance ??
+      $("profileInsurance")?.value ??
+      state.user.insurance ??
+      "",
+    notas:
+      dataObj.notas ??
+      dataObj.notes ??
+      $("profileNotes")?.value?.trim() ??
+      state.user.notes ??
+      "",
+    contacto_emergencia:
+      dataObj.contacto_emergencia ||
+      dataObj.emergencyContactName ||
+      $("profileEcName")?.value?.trim() ||
+      $("obEcName")?.value?.trim() ||
+      primerContacto?.name ||
+      state.user.emergencyContactName ||
+      "",
+    contacto_telefono:
+      dataObj.contacto_telefono ||
+      dataObj.emergencyContactPhone ||
+      $("profileEcPhone")?.value?.trim() ||
+      $("obEcPhone")?.value?.trim() ||
+      primerContacto?.phone ||
+      state.user.emergencyContactPhone ||
+      "",
+  };
+
+  try {
+    // 1. Guardar datos personales de la cuenta en tabla 'profiles'
+    const { error: errorProf } = await sb
+      .from("profiles")
+      .upsert(profilePayload, { onConflict: "id" });
+
+    if (errorProf) {
+      console.warn("Aviso al guardar en tabla 'profiles':", errorProf.message);
+    }
+
+    // 2. Guardar información médica y de emergencia en tabla 'fichas_medicas'
+    const { error: errorFicha } = await sb
+      .from("fichas_medicas")
+      .upsert([fichaPayload], { onConflict: "user_id" })
+      .select();
+
+    if (errorFicha) {
+      console.error("Error BD fichas_medicas:", errorFicha);
+      showToast("⚠️ Error BD: " + errorFicha.message, "#D97706", 5000);
+      return state.user;
+    }
+
+    // 3. Actualizar estado global y caché local
+    state.user = {
+      ...state.user,
+      name: profilePayload.name,
+      phone: profilePayload.phone,
+      email: user.email,
+      address: profilePayload.address || state.user.address || "",
+      age: fichaPayload.edad,
+      bloodType: fichaPayload.tipo_sangre,
+      allergies: fichaPayload.alergias,
+      condition: fichaPayload.enfermedad,
+      medication: fichaPayload.medicacion,
+      insurance: fichaPayload.seguro,
+      notes: fichaPayload.notas,
+      emergencyContactName: fichaPayload.contacto_emergencia,
+      emergencyContactPhone: fichaPayload.contacto_telefono,
+      onboardingDone: true,
+    };
+
+    localStorage.setItem(
+      "sos911_cached_profile_" + user.id,
+      JSON.stringify(state.user),
+    );
+
+    // 4. Sincronización visual inmediata
+    renderProfileUI();
+    showToast("✅ Perfil guardado correctamente", "#10B981");
+    return state.user;
+  } catch (err) {
+    console.error("Excepción en saveProfileToSupabase:", err);
+    showToast("❌ Error al guardar perfil: " + (err.message || err), "#DC2626");
+    return state.user;
+  }
 }
 
 // ════════════════════════════════════════════════════════════
-//  🔌 SUPABASE — CONTACTOS DE CONFIANZA (tabla `contacts`)
+// 🔌 SUPABASE — CONTACTOS DE CONFIANZA
 // ════════════════════════════════════════════════════════════
 
-// Vuelve a traer los contactos del usuario desde Supabase y re-renderiza.
 async function refreshContacts() {
-  const container1 = document.getElementById('contactsListContainer');
-  if (container1) { container1.innerHTML = '<div class="skeleton-loader"></div><div class="skeleton-loader"></div>'; }
-  await new Promise(r => setTimeout(r, 800)); // Premium UX Loading State
   const {
     data: { user },
   } = await sb.auth.getUser();
@@ -327,12 +485,10 @@ async function refreshContacts() {
 
   if (error) {
     console.error("Supabase (contacts select):", error);
-    showToast("❌ Error cargando tus contactos", "#DC2626");
     contactsCache = [];
   } else {
-    contactsCache = data;
+    contactsCache = data || [];
   }
-
   renderContactsUI();
   updateHomeContactCount();
 }
@@ -341,10 +497,10 @@ function renderContactsUI() {
   const container = $("contactsListContainer");
   if (!container) return;
 
-  if (contactsCache.length === 0) {
+  if (!contactsCache || contactsCache.length === 0) {
     container.innerHTML = `
-      <div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 13px;">
-        No tienes contactos de confianza registrados.<br>Agrega uno en el formulario de abajo.
+      <div style="text-align:center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;">
+        No tienes contactos de confianza agregados aún.
       </div>`;
     return;
   }
@@ -356,22 +512,17 @@ function renderContactsUI() {
       <div class="contact-avatar"><span class="material-symbols-rounded">person</span></div>
       <div class="contact-details">
         <strong>${escHtml(c.name)}</strong>
-        <span>${escHtml(c.phone)} ${c.relation ? "• " + escHtml(c.relation) : ""}</span>
+        <span>${escHtml(c.phone)} ${c.relation ? `&bull; ${escHtml(c.relation)}` : ""}</span>
       </div>
       <div class="contact-actions">
-        <button class="icon-action-btn" onclick="openEditContact(${c.id})" title="Editar">
-          <span class="material-symbols-rounded">edit</span>
-        </button>
-        <button class="icon-action-btn delete" onclick="deleteContact(${c.id})" title="Eliminar">
-          <span class="material-symbols-rounded">delete</span>
-        </button>
+        <button class="btn-icon-subtle" onclick="openEditContact(${c.id})" title="Editar"><span class="material-symbols-rounded">edit</span></button>
+        <button class="btn-icon-subtle danger" onclick="deleteContact(${c.id})" title="Eliminar"><span class="material-symbols-rounded">delete</span></button>
       </div>
     </div>
   `,
     )
     .join("");
 }
-
 function initContactForm() {
   const form = $("addContactForm");
   if (!form) return;
@@ -1611,8 +1762,6 @@ function showOnboarding() {
     if ($("obBloodType")) $("obBloodType").value = u.bloodType || "";
     if ($("obCondition")) $("obCondition").value = u.condition || "";
     if ($("obAllergies")) $("obAllergies").value = u.allergies || "";
-    if ($("obEcName")) $("obEcName").value = u.emergencyContactName || "";
-    if ($("obEcPhone")) $("obEcPhone").value = u.emergencyContactPhone || "";
   }
 }
 
@@ -1641,16 +1790,12 @@ function initOnboardingScreen() {
       const bloodType = $("obBloodType")?.value;
       const condition = $("obCondition")?.value.trim();
       const allergies = $("obAllergies")?.value.trim();
-      const ecName = $("obEcName")?.value.trim();
-      const ecPhone = $("obEcPhone")?.value.trim();
 
       const saved = await saveProfileToSupabase({
         age: age ? parseInt(age, 10) : null,
         bloodType: bloodType || "",
         condition: condition || "",
         allergies: allergies || "",
-        emergencyContactName: ecName || "",
-        emergencyContactPhone: ecPhone || "",
         onboardingDone: true,
       });
 
@@ -1671,37 +1816,14 @@ function initProfileModal() {
 
   if (openBtn) {
     openBtn.addEventListener("click", () => {
-      const u = state.user || DEFAULT_PROFILE;
-      if ($("userNameInput")) $("userNameInput").value = u.name || "";
-      if ($("userPhoneInput")) $("userPhoneInput").value = u.phone || "";
-      if ($("userEmailInput")) $("userEmailInput").value = u.email || "";
-      if ($("userAddressInput")) $("userAddressInput").value = u.address || "";
-
-      if ($("profileAge")) $("profileAge").value = u.age || "";
-      if ($("profileBloodType"))
-        $("profileBloodType").value = u.bloodType || "";
-      if ($("profileCondition"))
-        $("profileCondition").value = u.condition || "";
-      if ($("profileAllergies"))
-        $("profileAllergies").value = u.allergies || "";
-      if ($("profileMedication"))
-        $("profileMedication").value = u.medication || "";
-      if ($("profileInsurance"))
-        $("profileInsurance").value = u.insurance || "";
-      if ($("profileNotes")) $("profileNotes").value = u.notes || "";
-
-      if ($("profileEcName"))
-        $("profileEcName").value = u.emergencyContactName || "";
-      if ($("profileEcPhone"))
-        $("profileEcPhone").value = u.emergencyContactPhone || "";
-
+      renderProfileUI();
       $$(".form-error-msg").forEach((el) => (el.textContent = ""));
-      backdrop.classList.add("open");
+      backdrop?.classList.add("open");
     });
   }
 
   if (closeBtn) {
-    closeBtn.addEventListener("click", () => backdrop.classList.remove("open"));
+    closeBtn.addEventListener("click", () => closeModal("profileModal"));
   }
 
   const logoutBtn = $("logoutBtn");
@@ -1740,12 +1862,6 @@ function initProfileModal() {
       const bloodType = $("profileBloodType")
         ? $("profileBloodType").value
         : "";
-      const ecNameVal = $("profileEcName")
-        ? $("profileEcName").value.trim()
-        : "";
-      const ecPhoneVal = $("profileEcPhone")
-        ? $("profileEcPhone").value.trim()
-        : "";
 
       if (!age) {
         if ($("err-profileAge"))
@@ -1772,11 +1888,13 @@ function initProfileModal() {
 
       // UX Premium: Cambiar botón a estado de carga
       const saveBtn = $("saveProfileBtn");
-      const originalText = saveBtn.innerHTML;
+      const originalText = saveBtn ? saveBtn.innerHTML : "";
 
       try {
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<span class="material-symbols-rounded spin-loader">sync</span> Guardando...';
+        if (saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.innerHTML = '<span class="material-symbols-rounded spin-loader">sync</span> Guardando...';
+        }
 
         const conditionVal = $("profileCondition")?.value.trim() || "";
         const allergiesVal = $("profileAllergies")?.value.trim() || "";
@@ -1784,7 +1902,7 @@ function initProfileModal() {
         const insuranceVal = $("profileInsurance")?.value || "";
         const notesVal = $("profileNotes")?.value.trim() || "";
 
-        const saved = await saveProfileToSupabase({
+        await saveProfileToSupabase({
           name: userName,
           phone: userPhone,
           address: userAddress,
@@ -1795,30 +1913,18 @@ function initProfileModal() {
           medication: medicationVal,
           insurance: insuranceVal,
           notes: notesVal,
-          emergencyContactName: ecNameVal,
-          emergencyContactPhone: ecPhoneVal,
         });
 
-        await new Promise(r => setTimeout(r, 600));
-
-        if (!saved) return;
-
-        if ($("userEmailInput"))
-          $("userEmailInput").value = state.user.email || "";
-
-        backdrop.classList.remove("open");
-        
-        // UX Premium: Actualizar la Ficha Médica Transmitida
-        showMedicalBannerCard();
-        
-        // UX Premium: Toast Animado de Éxito
-        showToast("✅ ¡Ficha guardada exitosamente!", "#10B981");
+        renderProfileUI(); // Re-renderizar la vista
+        closeModal("profileModal");
       } catch (err) {
         console.error("Error guardando ficha:", err);
         showToast("❌ Error inesperado guardando la ficha.", "#DC2626");
       } finally {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = originalText;
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = originalText;
+        }
       }
     });
   }
