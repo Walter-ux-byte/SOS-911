@@ -134,21 +134,21 @@ function savePrefs(prefs) {
 // ════════════════════════════════════════════════════════════
 function mapProfileRowToState(row) {
   if (!row) return JSON.parse(JSON.stringify(DEFAULT_PROFILE));
-  // Soporta columnas en español (Supabase real) con fallback a inglés
+  // Soporta columnas en español e inglés sin requerir llaves con espacios
   return {
-    name:                 row.nombre                   || row.name                   || "",
-    phone:                row.telefono                 || row.phone                  || "",
+    name:                 row.name                   || row.nombre                   || "",
+    phone:                row.phone                  || row.telefono                 || "",
     email:                row.email                                                  || "",
-    address:              row.direccion                || row.address                || "",
-    age:                  row.edad                     ?? row.age                   ?? "",
-    bloodType:            row["tipo de sangre"]         || row.blood_type             || "",
-    condition:            row.enfermedad               || row.condition              || "",
-    allergies:            row.alergias                 || row.allergies              || "",
-    medication:           row.medicacion               || row.medication             || "",
-    insurance:            row.seguro                   || row.insurance              || "",
-    notes:                row.notas                    || row.notes                  || "",
-    emergencyContactName: row["contacto de emergencia"]|| row.emergency_contact_name || "",
-    emergencyContactPhone:row.telefono_emergencia      || row.emergency_contact_phone|| "",
+    address:              row.address                || row.direccion                || "",
+    age:                  row.age                    ?? row.edad                     ?? "",
+    bloodType:            row.blood_type             || row.tipo_de_sangre           || row["tipo de sangre"]         || "",
+    condition:            row.condition              || row.enfermedad               || "",
+    allergies:            row.allergies              || row.alergias                 || "",
+    medication:           row.medication             || row.medicacion               || "",
+    insurance:            row.insurance              || row.seguro                   || "",
+    notes:                row.notes                  || row.notas                    || "",
+    emergencyContactName: row.emergency_contact_name || row.contacto_emergencia_nombre|| row["contacto de emergencia"]|| row["contacto emergencia nombre"] || "",
+    emergencyContactPhone:row.emergency_contact_phone|| row.contacto_emergencia_telefono|| row.telefono_emergencia     || row["contacto emergencia telefono"] || "",
     onboardingDone:       !!(row.onboarding_done),
   };
 }
@@ -164,6 +164,17 @@ async function loadUserProfile() {
   } = await sb.auth.getUser();
   if (!user) return;
 
+  // 1. Cargar desde caché local de respaldo
+  try {
+    const cached = localStorage.getItem("sos911_cached_profile_" + user.id);
+    if (cached) {
+      state.user = { ...JSON.parse(JSON.stringify(DEFAULT_PROFILE)), ...JSON.parse(cached) };
+    }
+  } catch (e) {
+    console.warn("Error leyendo caché local de perfil:", e);
+  }
+
+  // 2. Traer de Supabase
   let { data: profile, error } = await sb
     .from("profiles")
     .select("*")
@@ -174,7 +185,7 @@ async function loadUserProfile() {
     console.error("Supabase (profiles select):", error);
   }
 
-  if (!profile) {
+  if (!profile && !error) {
     // Primera vez del usuario: creamos su fila de perfil vacía
     const { data: created, error: insertErr } = await sb
       .from("profiles")
@@ -185,16 +196,22 @@ async function loadUserProfile() {
       })
       .select()
       .single();
-    if (insertErr) console.error("Supabase (profiles insert):", insertErr);
-    profile = created;
+    if (insertErr) {
+      console.error("Supabase (profiles insert):", insertErr);
+    } else {
+      profile = created;
+    }
   }
 
-  state.user = mapProfileRowToState(profile);
+  if (profile) {
+    const mapped = mapProfileRowToState(profile);
+    state.user = { ...state.user, ...mapped };
+    localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
+  }
 }
 
-// Guarda (upsert) campos del perfil en Supabase. `fields` usa nombres
-// de columna en snake_case, ej: { blood_type: "O+", age: 28 }
-async function saveProfileToSupabase(fields) {
+// Guarda (upsert) campos del perfil en Supabase sin llaves con espacios.
+async function saveProfileToSupabase(dataObj) {
   const {
     data: { user },
   } = await sb.auth.getUser();
@@ -203,19 +220,84 @@ async function saveProfileToSupabase(fields) {
     return null;
   }
 
-  const { data, error } = await sb
+  // Actualizar estado local y caché de inmediato para respuesta instantánea
+  state.user = { ...state.user, ...dataObj };
+  localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
+
+  // Payload estándar en inglés (snake_case sin espacios)
+  const englishPayload = {
+    id: user.id,
+    updated_at: new Date().toISOString(),
+    name: state.user.name || "",
+    phone: state.user.phone || "",
+    email: state.user.email || user.email || "",
+    address: state.user.address || "",
+    age: state.user.age !== "" && state.user.age !== null ? parseInt(state.user.age, 10) : null,
+    blood_type: state.user.bloodType || "",
+    condition: state.user.condition || "",
+    allergies: state.user.allergies || "",
+    medication: state.user.medication || "",
+    insurance: state.user.insurance || "",
+    notes: state.user.notes || "",
+    emergency_contact_name: state.user.emergencyContactName || "",
+    emergency_contact_phone: state.user.emergencyContactPhone || "",
+    onboarding_done: !!state.user.onboardingDone
+  };
+
+  // Intentar upsert con columnas estándar (inglés)
+  let { data, error } = await sb
     .from("profiles")
-    .upsert({ id: user.id, updated_at: new Date().toISOString(), ...fields })
+    .upsert(englishPayload)
     .select()
     .single();
 
   if (error) {
-    console.error("Supabase (profiles upsert) ERROR:", error);
-    showToast("❌ Error guardando el perfil: " + error.message, "#DC2626");
-    return null;
+    console.warn("Supabase standard upsert warning:", error.message);
+
+    // Fallback: Intentar con columnas en español (snake_case sin espacios)
+    const spanishPayload = {
+      id: user.id,
+      updated_at: englishPayload.updated_at,
+      nombre: englishPayload.name,
+      telefono: englishPayload.phone,
+      email: englishPayload.email,
+      direccion: englishPayload.address,
+      edad: englishPayload.age,
+      tipo_de_sangre: englishPayload.blood_type,
+      enfermedad: englishPayload.condition,
+      alergias: englishPayload.allergies,
+      medicacion: englishPayload.medication,
+      seguro: englishPayload.insurance,
+      notas: englishPayload.notes,
+      contacto_emergencia_nombre: englishPayload.emergency_contact_name,
+      contacto_emergencia_telefono: englishPayload.emergency_contact_phone,
+      onboarding_done: englishPayload.onboarding_done
+    };
+
+    const resSpanish = await sb
+      .from("profiles")
+      .upsert(spanishPayload)
+      .select()
+      .single();
+
+    if (!resSpanish.error) {
+      data = resSpanish.data;
+      error = null;
+    } else {
+      console.error("Supabase spanish upsert error:", resSpanish.error);
+    }
   }
-  console.log("Supabase (profiles upsert) OK — fila guardada:", data);
-  return data;
+
+  if (error) {
+    showToast("⚠️ Guardado localmente. Error BD: " + error.message, "#D97706", 5000);
+    return state.user;
+  }
+
+  console.log("Supabase (profiles upsert) OK:", data);
+  const mapped = mapProfileRowToState(data);
+  state.user = { ...state.user, ...mapped };
+  localStorage.setItem("sos911_cached_profile_" + user.id, JSON.stringify(state.user));
+  return state.user;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1541,9 +1623,7 @@ function initOnboardingScreen() {
 
   if (skipBtn) {
     skipBtn.addEventListener("click", async () => {
-      // 🔌 Marcamos onboarding_done=true en Supabase para no volver a mostrarlo
-      await saveProfileToSupabase({ onboarding_done: true });
-      state.user.onboardingDone = true;
+      await saveProfileToSupabase({ onboardingDone: true });
       if (screen) screen.classList.add("hidden");
       showToast(
         "📋 Puedes completar tu ficha médica desde el ícono de perfil",
@@ -1564,28 +1644,17 @@ function initOnboardingScreen() {
       const ecName = $("obEcName")?.value.trim();
       const ecPhone = $("obEcPhone")?.value.trim();
 
-      // 🔌 Guardar la ficha de emergencia inicial en la tabla `profiles`
       const saved = await saveProfileToSupabase({
-        // Columnas en español (esquema real de Supabase)
-        edad: age ? parseInt(age, 10) : null,
-        "tipo de sangre": bloodType,
-        enfermedad: condition,
-        alergias: allergies,
-        "contacto emergencia nombre": ecName,
-        "contacto emergencia telefono": ecPhone,
-        onboarding_done: true,
-        // Fallback en inglés por compatibilidad
         age: age ? parseInt(age, 10) : null,
-        blood_type: bloodType,
-        condition,
-        allergies,
-        emergency_contact_name: ecName,
-        emergency_contact_phone: ecPhone,
+        bloodType: bloodType || "",
+        condition: condition || "",
+        allergies: allergies || "",
+        emergencyContactName: ecName || "",
+        emergencyContactPhone: ecPhone || "",
+        onboardingDone: true,
       });
 
-      if (!saved) return; // el error ya se mostró en saveProfileToSupabase
-
-      state.user = mapProfileRowToState(saved);
+      if (!saved) return;
 
       if (screen) screen.classList.add("hidden");
       showToast("✅ Ficha de emergencia guardada correctamente", "#16A34A");
@@ -1671,7 +1740,10 @@ function initProfileModal() {
       const bloodType = $("profileBloodType")
         ? $("profileBloodType").value
         : "";
-      const ecPhone = $("profileEcPhone")
+      const ecNameVal = $("profileEcName")
+        ? $("profileEcName").value.trim()
+        : "";
+      const ecPhoneVal = $("profileEcPhone")
         ? $("profileEcPhone").value.trim()
         : "";
 
@@ -1696,8 +1768,6 @@ function initProfileModal() {
         hasError = true;
       }
 
-
-
       if (hasError) return;
 
       // UX Premium: Cambiar botón a estado de carga
@@ -1708,43 +1778,31 @@ function initProfileModal() {
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<span class="material-symbols-rounded spin-loader">sync</span> Guardando...';
 
-        // 🔌 Guardar en Supabase — columnas en español + fallback inglés
         const conditionVal = $("profileCondition")?.value.trim() || "";
         const allergiesVal = $("profileAllergies")?.value.trim() || "";
+        const medicationVal = $("profileMedication")?.value.trim() || "";
+        const insuranceVal = $("profileInsurance")?.value || "";
+        const notesVal = $("profileNotes")?.value.trim() || "";
+
         const saved = await saveProfileToSupabase({
-          // Columnas en español (esquema real de Supabase)
-          nombre: userName,
-          telefono: userPhone,
-          direccion: userAddress,
-          edad: parseInt(age, 10),
-          "tipo de sangre": bloodType,
-          alergias: allergiesVal,
-          enfermedad: conditionVal,
-          medicacion: $("profileMedication")?.value.trim() || "",
-          seguro: $("profileInsurance")?.value || "",
-          notas: $("profileNotes")?.value.trim() || "",
-          // Fallback inglés por compatibilidad
           name: userName,
           phone: userPhone,
           address: userAddress,
           age: parseInt(age, 10),
-          blood_type: bloodType,
+          bloodType: bloodType,
           condition: conditionVal,
           allergies: allergiesVal,
-          medication: $("profileMedication")?.value.trim() || "",
-          insurance: $("profileInsurance")?.value || "",
-          notes: $("profileNotes")?.value.trim() || "",
+          medication: medicationVal,
+          insurance: insuranceVal,
+          notes: notesVal,
+          emergencyContactName: ecNameVal,
+          emergencyContactPhone: ecPhoneVal,
         });
 
-        // Simulamos fetch adicional para apreciar la animación
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 600));
 
-        if (!saved) {
-          // Si no se guardó (error), saveProfileToSupabase ya muestra un toast. 
-          return;
-        }
+        if (!saved) return;
 
-        state.user = mapProfileRowToState(saved);
         if ($("userEmailInput"))
           $("userEmailInput").value = state.user.email || "";
 
